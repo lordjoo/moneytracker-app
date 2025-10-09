@@ -36,33 +36,37 @@
         <h2 class="card-title">History</h2>
         <div class="divide-y divide-base-300">
           <article
-            v-for="tx in filteredTransactions"
-            :key="tx.id"
+            v-for="item in transactionSummaries"
+            :key="item.tx.id"
             class="flex flex-col gap-2 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
           >
             <div class="space-y-1">
               <div class="flex items-center gap-2 font-medium">
-                <CategoryIcon :icon="transactionIcon(tx)" class="h-6 w-6" />
-                <span>{{ renderTransactionTitle(tx) }}</span>
+                <CategoryIcon :icon="transactionIcon(item.tx)" class="h-6 w-6" />
+                <span>{{ renderTransactionTitle(item.tx) }}</span>
               </div>
               <p class="opacity-60">
-                {{ formatDate(tx.occurredAt) }} · {{ accountsStore.accountById(tx.accountId)?.name ?? 'Unknown account' }}
+                {{ formatDate(item.tx.occurredAt) }} · {{ accountsStore.accountById(item.tx.accountId)?.name ?? 'Unknown account' }}
               </p>
-              <p class="text-xs opacity-60" v-if="tx.note">{{ tx.note }}</p>
+              <p class="text-xs opacity-60" v-if="item.tx.note">{{ item.tx.note }}</p>
             </div>
             <div class="flex items-center gap-3 text-sm">
-              <span class="badge badge-outline">{{ tx.type }}</span>
-              <span :class="txClass(tx)">{{ formatCurrency(txSign(tx) * tx.amount) }}</span>
+              <span class="badge badge-outline">{{ item.tx.type }}</span>
+              <div class="text-right">
+                <span :class="txClass(item.tx)">{{ item.formattedAccount }}</span>
+                <p v-if="item.formattedBase" class="text-xs opacity-60">≈ {{ item.formattedBase }}</p>
+                <p v-else-if="item.pending" class="text-xs opacity-60">Conversion pending…</p>
+              </div>
               <button
                 class="btn btn-ghost btn-xs text-error"
-                :title="`Delete ${renderTransactionTitle(tx)}`"
-                @click="requestDelete(tx)"
+                :title="`Delete ${renderTransactionTitle(item.tx)}`"
+                @click="requestDelete(item.tx)"
               >
                 <TrashIcon class="h-4 w-4" />
               </button>
             </div>
           </article>
-          <p v-if="!filteredTransactions.length" class="py-4 text-sm opacity-60">No transactions yet.</p>
+          <p v-if="!transactionSummaries.length" class="py-4 text-sm opacity-60">No transactions yet.</p>
         </div>
       </div>
     </section>
@@ -174,6 +178,7 @@ import CategoryIcon from '@/components/CategoryIcon.vue';
 import { useAccountsStore } from '@/stores/accounts';
 import { useTransactionsStore } from '@/stores/transactions';
 import { useCategoriesStore } from '@/stores/categories';
+import { useCurrencyStore } from '@/stores/currency';
 import ConfirmationDialog from '@/components/ConfirmationDialog.vue';
 import { TrashIcon } from '@heroicons/vue/24/outline';
 
@@ -182,6 +187,7 @@ const router = useRouter();
 const accountsStore = useAccountsStore();
 const transactionsStore = useTransactionsStore();
 const categoriesStore = useCategoriesStore();
+const currencyStore = useCurrencyStore();
 
 if (!accountsStore.initialized) {
   accountsStore.init();
@@ -214,8 +220,9 @@ const transactionToDelete = ref(null);
 const deletePrompt = computed(() => {
   if (!transactionToDelete.value) return '';
   const title = renderTransactionTitle(transactionToDelete.value);
-  const amount = formatCurrency(txSign(transactionToDelete.value) * transactionToDelete.value.amount);
-  return `Delete "${title}" (${amount})? This action cannot be undone.`;
+  const summary = describeTransactionAmount(transactionToDelete.value);
+  const amountLabel = summary.formattedAccount;
+  return `Delete "${title}" (${amountLabel})? This action cannot be undone.`;
 });
 
 watch(
@@ -255,6 +262,12 @@ const filteredTransactions = computed(() => {
     return true;
   });
 });
+const transactionSummaries = computed(() =>
+  filteredTransactions.value.map((tx) => ({
+    tx,
+    ...describeTransactionAmount(tx)
+  }))
+);
 const expenseCategories = computed(() => categoriesStore.expenseCategories);
 const incomeCategories = computed(() => categoriesStore.incomeCategories);
 const openAccounts = computed(() => accountsStore.openAccounts);
@@ -304,11 +317,29 @@ watch(
   { immediate: true }
 );
 
-function formatCurrency(value) {
-  return new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD'
-  }).format(Number(value ?? 0));
+function formatCurrency(value, currency = currencyStore.mainCurrency.value) {
+  return currencyStore.formatCurrency(value, currency);
+}
+
+function describeTransactionAmount(tx) {
+  const account = accountsStore.accountById(tx.accountId);
+  const amount = Number(tx.amount) || 0;
+  const sign = txSign(tx);
+  const accountCurrency = account?.currency || currencyStore.mainCurrency.value;
+  const converted = currencyStore.convertAmount(amount, accountCurrency, currencyStore.mainCurrency.value, {
+    requestIfMissing: true
+  });
+  const pending = accountCurrency !== currencyStore.mainCurrency.value && converted === null;
+  const formattedAccount = formatCurrency(sign * amount, accountCurrency);
+  const formattedBase =
+    accountCurrency !== currencyStore.mainCurrency.value && !pending
+      ? formatCurrency(sign * converted)
+      : null;
+  return {
+    formattedAccount,
+    formattedBase,
+    pending
+  };
 }
 
 function formatDate(date) {

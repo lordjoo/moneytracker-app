@@ -9,13 +9,18 @@ export const usePreferencesStore = defineStore('preferences', {
     lastRestoreAt: null,
     theme: 'mymoney-light',
     onboardingCompleted: false,
+    mainCurrency: 'USD',
+    currencyApiToken: '',
     initialized: false
   }),
   getters: {
     lastBackupDate: (state) => state.lastBackupAt,
     lastRestoreDate: (state) => state.lastRestoreAt,
     activeTheme: (state) => state.theme,
-    hasCompletedOnboarding: (state) => state.onboardingCompleted
+    hasCompletedOnboarding: (state) => state.onboardingCompleted,
+    baseCurrency: (state) => state.mainCurrency,
+    currencyToken: (state) => state.currencyApiToken,
+    hasCurrencyToken: (state) => Boolean(state.currencyApiToken)
   },
   actions: {
     init() {
@@ -24,12 +29,16 @@ export const usePreferencesStore = defineStore('preferences', {
         lastBackupAt: null,
         lastRestoreAt: null,
         theme: 'mymoney-light',
-        onboardingCompleted: false
+        onboardingCompleted: false,
+        mainCurrency: 'USD',
+        currencyApiToken: ''
       });
       this.lastBackupAt = parseDate(record.lastBackupAt);
       this.lastRestoreAt = parseDate(record.lastRestoreAt);
       this.theme = record.theme ?? 'mymoney-light';
       this.onboardingCompleted = Boolean(record.onboardingCompleted);
+      this.mainCurrency = record.mainCurrency || 'USD';
+      this.currencyApiToken = record.currencyApiToken || '';
       this.initialized = true;
     },
     persist() {
@@ -37,7 +46,9 @@ export const usePreferencesStore = defineStore('preferences', {
         lastBackupAt: this.lastBackupAt ? this.lastBackupAt.toISOString() : null,
         lastRestoreAt: this.lastRestoreAt ? this.lastRestoreAt.toISOString() : null,
         theme: this.theme,
-        onboardingCompleted: this.onboardingCompleted
+        onboardingCompleted: this.onboardingCompleted,
+        mainCurrency: this.mainCurrency,
+        currencyApiToken: this.currencyApiToken
       });
     },
     markBackup(date = new Date()) {
@@ -50,6 +61,14 @@ export const usePreferencesStore = defineStore('preferences', {
     },
     setTheme(theme) {
       this.theme = theme;
+      this.persist();
+    },
+    setMainCurrency(currency) {
+      this.mainCurrency = currency || 'USD';
+      this.persist();
+    },
+    setCurrencyApiToken(token) {
+      this.currencyApiToken = token?.trim?.() ?? '';
       this.persist();
     },
     completeOnboarding() {
