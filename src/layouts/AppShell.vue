@@ -8,7 +8,8 @@
         </RouterLink>
         <div class="ms-auto flex items-center gap-3">
           <p class="hidden text-sm font-medium opacity-80 sm:block">
-            Net worth: {{ formatCurrency(accountsStore.totalWorth) }}
+            Net worth: {{ netWorthLabel }}
+            <span v-if="showNetWorthHint" class="text-xs opacity-60">(partial)</span>
           </p>
           <button class="btn btn-outline btn-sm" @click="toggleTheme" :aria-label="themeLabel">
             <component :is="themeIcon" class="h-4 w-4" />
@@ -82,6 +83,7 @@ import { useAccountsStore } from '@/stores/accounts';
 import { useTransactionsStore } from '@/stores/transactions';
 import { useCategoriesStore } from '@/stores/categories';
 import { usePreferencesStore } from '@/stores/preferences';
+import { useCurrencyStore } from '@/stores/currency';
 
 const route = useRoute();
 const authStore = useAuthStore();
@@ -89,6 +91,7 @@ const accountsStore = useAccountsStore();
 const transactionsStore = useTransactionsStore();
 const categoriesStore = useCategoriesStore();
 const preferencesStore = usePreferencesStore();
+const currencyStore = useCurrencyStore();
 
 preferencesStore.init();
 
@@ -109,6 +112,13 @@ const navigation = computed(() => [
 const themeIcon = computed(() => (theme.value === 'mymoney-dark' ? SunIcon : MoonIcon));
 const themeLabel = computed(() =>
   theme.value === 'mymoney-dark' ? 'Switch to light theme' : 'Switch to dark theme'
+);
+
+const netWorthLabel = computed(() =>
+  currencyStore.formatCurrency(currencyStore.totalWorthInMain.value)
+);
+const showNetWorthHint = computed(
+  () => currencyStore.accountsMissingConversion.value.length > 0
 );
 
 onMounted(async () => {
@@ -138,13 +148,6 @@ function applyTheme() {
   if (preferencesStore.activeTheme !== theme.value) {
     preferencesStore.setTheme(theme.value);
   }
-}
-
-function formatCurrency(value) {
-  return new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD'
-  }).format(Number(value ?? 0));
 }
 
 function toggleTheme() {

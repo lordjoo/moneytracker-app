@@ -1,15 +1,18 @@
 import { defineStore } from 'pinia';
 import { generateId, parseDate, readJson, writeJson } from '@/utils/storage';
 import { useTransactionsStore } from './transactions';
+import { usePreferencesStore } from './preferences';
 
 const STORAGE_KEY = 'accounts';
+const FALLBACK_CURRENCY = 'USD';
 
-function deserialiseAccount(record) {
+function deserialiseAccount(record, defaultCurrency = FALLBACK_CURRENCY) {
   return {
     ...record,
     createdAt: parseDate(record.createdAt),
     updatedAt: parseDate(record.updatedAt),
-    closedAt: parseDate(record.closedAt)
+    closedAt: parseDate(record.closedAt),
+    currency: record.currency || defaultCurrency
   };
 }
 
@@ -18,7 +21,8 @@ function serialiseAccount(account) {
     ...account,
     createdAt: account.createdAt ? account.createdAt.toISOString() : null,
     updatedAt: account.updatedAt ? account.updatedAt.toISOString() : null,
-    closedAt: account.closedAt ? account.closedAt.toISOString() : null
+    closedAt: account.closedAt ? account.closedAt.toISOString() : null,
+    currency: account.currency || FALLBACK_CURRENCY
   };
 }
 
@@ -56,8 +60,15 @@ export const useAccountsStore = defineStore('accounts', {
     init() {
       if (this.initialized) return;
       this.status = 'loading';
+      const preferencesStore = usePreferencesStore();
+      if (!preferencesStore.initialized) {
+        preferencesStore.init();
+      }
+      const baseCurrency = preferencesStore.baseCurrency || FALLBACK_CURRENCY;
       const records = readJson(STORAGE_KEY, []);
-      this.accounts = Array.isArray(records) ? records.map(deserialiseAccount) : [];
+      this.accounts = Array.isArray(records)
+        ? records.map((entry) => deserialiseAccount(entry, baseCurrency))
+        : [];
       this.activeAccountId = this.determineActiveAccountId();
       this.status = 'ready';
       this.initialized = true;
@@ -77,7 +88,7 @@ export const useAccountsStore = defineStore('accounts', {
       this.activeAccountId = id;
       this.persist();
     },
-    createAccount({ name, openingBalance = 0, cycleDay = null }) {
+    createAccount({ name, openingBalance = 0, cycleDay = null, currency } = {}) {
       const trimmed = String(name ?? '').trim();
       if (!trimmed) {
         throw new Error('Account name is required');
@@ -85,6 +96,11 @@ export const useAccountsStore = defineStore('accounts', {
       const amount = ensureNumber(openingBalance, 0);
       const now = new Date();
       const id = generateId('acct');
+      const preferencesStore = usePreferencesStore();
+      if (!preferencesStore.initialized) {
+        preferencesStore.init();
+      }
+      const selectedCurrency = currency || preferencesStore.baseCurrency || FALLBACK_CURRENCY;
       const account = {
         id,
         name: trimmed,
@@ -92,6 +108,7 @@ export const useAccountsStore = defineStore('accounts', {
         cycleDay: cycleDay ? Number(cycleDay) : null,
         isClosed: false,
         closedAt: null,
+        currency: selectedCurrency,
         createdAt: now,
         updatedAt: now
       };
@@ -123,6 +140,9 @@ export const useAccountsStore = defineStore('accounts', {
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'cycleDay')) {
         payload.cycleDay = payload.cycleDay ? Number(payload.cycleDay) : null;
+      }
+      if (payload.currency) {
+        payload.currency = String(payload.currency).toUpperCase();
       }
       Object.assign(account, payload, { updatedAt: new Date() });
       this.persist();
@@ -161,7 +181,9 @@ export const useAccountsStore = defineStore('accounts', {
       this.persist();
     },
     replaceAll(records) {
-      this.accounts = Array.isArray(records) ? records.map(deserialiseAccount) : [];
+      this.accounts = Array.isArray(records)
+        ? records.map((entry) => deserialiseAccount(entry, FALLBACK_CURRENCY))
+        : [];
       this.activeAccountId = this.determineActiveAccountId();
       this.status = 'ready';
       this.initialized = true;

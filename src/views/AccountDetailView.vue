@@ -7,10 +7,17 @@
           <span v-if="account.isClosed" class="badge badge-outline badge-sm">Closed</span>
         </div>
         <p class="text-sm opacity-70">Cycle day: {{ account.cycleDay ?? 'Not set' }}</p>
+        <p class="text-sm opacity-70">Currency: {{ account.currency ?? currencyStore.mainCurrency }}</p>
       </div>
       <div class="flex flex-col items-end gap-1 text-right">
         <span class="text-xs opacity-60">Current balance</span>
         <span class="text-3xl font-semibold">{{ formatCurrency(account.balance) }}</span>
+        <p v-if="account.currency !== currencyStore.mainCurrency" class="text-xs opacity-60">
+          <span v-if="convertedAccountBalance !== null">
+            ≈ {{ formatBaseCurrency(convertedAccountBalance) }}
+          </span>
+          <span v-else>Conversion pending…</span>
+        </p>
         <button class="btn btn-primary btn-sm" :disabled="isClosed" @click="openTransaction = true">
           {{ isClosed ? 'Account closed' : 'Add transaction' }}
         </button>
@@ -48,25 +55,37 @@
       <div class="card-body">
         <h2 class="card-title">Transactions</h2>
         <div class="divide-y divide-base-300">
-          <article v-for="tx in accountTransactions" :key="tx.id" class="flex items-start justify-between gap-4 py-3 text-sm">
+          <article
+            v-for="item in accountTransactionSummaries"
+            :key="item.tx.id"
+            class="flex items-start justify-between gap-4 py-3 text-sm"
+          >
             <div class="flex items-start gap-3">
-              <CategoryIcon :icon="transactionIcon(tx)" class="h-6 w-6 mt-1" />
+              <CategoryIcon :icon="transactionIcon(item.tx)" class="h-6 w-6 mt-1" />
               <div>
-                <p class="font-medium">{{ renderTransactionTitle(tx) }}</p>
+                <p class="font-medium">{{ renderTransactionTitle(item.tx) }}</p>
                 <p class="opacity-60">
-                  {{ formatDate(tx.occurredAt) }} &middot; {{ tx.note || 'No note' }}
+                  {{ formatDate(item.tx.occurredAt) }} &middot; {{ item.tx.note || 'No note' }}
                 </p>
               </div>
             </div>
             <div class="flex items-center gap-3">
-              <span class="badge badge-outline">{{ tx.type }}</span>
-              <span :class="txClass(tx)">{{ formatCurrency(txSign(tx) * tx.amount) }}</span>
-              <button class="btn btn-ghost btn-xs text-error" :title="`Delete ${renderTransactionTitle(tx)}`" @click="requestDelete(tx)">
+              <span class="badge badge-outline">{{ item.tx.type }}</span>
+              <div class="text-right">
+                <span :class="txClass(item.tx)">{{ item.formattedAccount }}</span>
+                <p v-if="item.formattedBase" class="text-xs opacity-60">≈ {{ item.formattedBase }}</p>
+                <p v-else-if="item.pending" class="text-xs opacity-60">Conversion pending…</p>
+              </div>
+              <button
+                class="btn btn-ghost btn-xs text-error"
+                :title="`Delete ${renderTransactionTitle(item.tx)}`"
+                @click="requestDelete(item.tx)"
+              >
                 <TrashIcon class="h-4 w-4" />
               </button>
             </div>
           </article>
-          <p v-if="!accountTransactions.length" class="py-4 text-sm opacity-60">No transactions yet.</p>
+          <p v-if="!accountTransactionSummaries.length" class="py-4 text-sm opacity-60">No transactions yet.</p>
         </div>
       </div>
     </section>
@@ -178,6 +197,7 @@ import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } fro
 import { useAccountsStore } from '@/stores/accounts';
 import { useTransactionsStore } from '@/stores/transactions';
 import { useCategoriesStore } from '@/stores/categories';
+import { useCurrencyStore } from '@/stores/currency';
 import CategoryIcon from '@/components/CategoryIcon.vue';
 import ConfirmationDialog from '@/components/ConfirmationDialog.vue';
 import { TrashIcon } from '@heroicons/vue/24/outline';
@@ -186,6 +206,7 @@ const route = useRoute();
 const accountsStore = useAccountsStore();
 const transactionsStore = useTransactionsStore();
 const categoriesStore = useCategoriesStore();
+const currencyStore = useCurrencyStore();
 
 if (!accountsStore.initialized) {
   accountsStore.init();
@@ -269,6 +290,22 @@ const accountTransactions = computed(() =>
     .sort(compareTransactionsDesc)
 );
 
+const convertedAccountBalance = computed(() => {
+  if (!account.value) return null;
+  const baseCurrency = currencyStore.mainCurrency.value;
+  const accountCurrency = account.value.currency || baseCurrency;
+  if (accountCurrency === baseCurrency) {
+    return Number(account.value.balance) || 0;
+  }
+  const converted = currencyStore.convertAmount(account.value.balance, accountCurrency, baseCurrency, {
+    requestIfMissing: true
+  });
+  if (converted === null) {
+    return null;
+  }
+  return converted;
+});
+
 const monthly = computed(() => {
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -289,11 +326,16 @@ const monthly = computed(() => {
   return { inflow, outflow, net: inflow - outflow };
 });
 
-function formatCurrency(value) {
-  return new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD'
-  }).format(Number(value ?? 0));
+const accountCurrencyCode = computed(
+  () => account.value?.currency || currencyStore.mainCurrency.value
+);
+
+function formatCurrency(value, currency = accountCurrencyCode.value) {
+  return currencyStore.formatCurrency(value, currency);
+}
+
+function formatBaseCurrency(value) {
+  return currencyStore.formatCurrency(value, currencyStore.mainCurrency.value);
 }
 
 function formatDate(date) {
@@ -323,6 +365,30 @@ function txSign(tx) {
 function txClass(tx) {
   return txSign(tx) > 0 ? 'text-success font-medium' : 'text-error font-medium';
 }
+
+const accountTransactionSummaries = computed(() =>
+  accountTransactions.value.map((tx) => {
+    const sign = txSign(tx);
+    const amount = Number(tx.amount) || 0;
+    const accountCurrency = accountCurrencyCode.value;
+    const converted = currencyStore.convertAmount(amount, accountCurrency, currencyStore.mainCurrency.value, {
+      requestIfMissing: true
+    });
+    const pending =
+      accountCurrency !== currencyStore.mainCurrency.value && converted === null;
+    const formattedAccount = formatCurrency(sign * amount, accountCurrency);
+    const formattedBase =
+      accountCurrency !== currencyStore.mainCurrency.value && !pending
+        ? formatBaseCurrency(sign * converted)
+        : null;
+    return {
+      tx,
+      formattedAccount,
+      formattedBase,
+      pending
+    };
+  })
+);
 
 async function handleTransaction() {
   if (isClosed.value) {
