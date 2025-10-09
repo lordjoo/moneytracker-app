@@ -235,7 +235,7 @@ const fallbackAvatar = ref(makeFallbackAvatar(authStore.displayName));
 const lastBackupLabel = computed(() => formatTimestamp(preferencesStore.lastBackupDate));
 const lastRestoreLabel = computed(() => formatTimestamp(preferencesStore.lastRestoreDate));
 const isAuthenticating = computed(() => authStore.status === 'authenticating');
-const hasCurrencyToken = computed(() => currencyStore.hasToken);
+const hasCurrencyToken = computed(() => currencyStore.hasToken.value);
 const currencyStatusClass = computed(() => {
   if (currencyStatusKind.value === 'error') return 'text-error';
   if (currencyStatusKind.value === 'success') return 'text-success';

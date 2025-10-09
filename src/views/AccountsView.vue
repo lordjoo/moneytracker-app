@@ -305,7 +305,7 @@ const closePrompt = computed(() =>
 );
 
 const currencyOptions = currencyList;
-const hasCurrencyToken = computed(() => currencyStore.hasToken);
+const hasCurrencyToken = computed(() => currencyStore.hasToken.value);
 const convertedBalances = currencyStore.convertedAccountBalances;
 
 watch(
@@ -325,6 +325,19 @@ watch(openCloseDialog, (isOpen) => {
     accountToClose.value = null;
   }
 });
+
+watch(
+  hasCurrencyToken,
+  (enabled) => {
+    if (enabled) return;
+    const fallback = currencyStore.mainCurrency.value;
+    form.currency = fallback;
+    if (!openEdit.value) {
+      editForm.currency = fallback;
+    }
+  },
+  { immediate: true }
+);
 
 function accountCurrencyInBase(accountId) {
   return convertedBalances.value?.get?.(accountId) ?? null;
