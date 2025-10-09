@@ -7,5 +7,4 @@ node_modules
 .vscode
 coverage
 .firebase
-package-lock.json
 dist/
