@@ -13,6 +13,7 @@
           <h2 class="card-title">Spent This Month</h2>
           <p class="text-3xl font-semibold text-error">{{ formatCurrency(currentMonth.spent) }}</p>
           <p :class="currentMonth.deltaClass">{{ currentMonth.deltaLabel }}</p>
+          <p v-if="currentMonth.pending" class="text-xs opacity-60">Waiting for exchange rates…</p>
         </div>
       </article>
       <article class="card bg-base-100 shadow sm:col-span-2 lg:col-span-1">
@@ -32,20 +33,35 @@
         </div>
           <ul class="divide-y divide-base-300">
             <li v-for="account in accountsStore.sortedAccounts" :key="account.id" class="flex items-center justify-between py-3">
-            <div>
-              <p class="font-medium flex items-center gap-2">
-                {{ account.name }}
-                <span v-if="account.isClosed" class="badge badge-outline badge-xs">Closed</span>
-              </p>
-              <p class="text-xs opacity-70">Cycle day: {{ account.cycleDay ? account.cycleDay : 'None set' }}</p>
-            </div>
-            <div class="text-right">
-              <p class="font-semibold">{{ formatCurrency(account.balance) }}</p>
-              <RouterLink :to="`/accounts/${account.id}`" class="link text-xs">View details</RouterLink>
-            </div>
-          </li>
-        </ul>
-      </div>
+              <div>
+                <p class="font-medium flex items-center gap-2">
+                  {{ account.name }}
+                  <span v-if="account.isClosed" class="badge badge-outline badge-xs">Closed</span>
+                </p>
+                <p class="text-xs opacity-70">Cycle day: {{ account.cycleDay ? account.cycleDay : 'None set' }}</p>
+                <p class="text-xs opacity-70">
+                  Currency: {{ account.currency }}
+                </p>
+              </div>
+              <div class="text-right">
+                <p class="font-semibold">{{ formatCurrency(account.balance, account.currency) }}</p>
+                <p
+                  v-if="account.currency !== currencyStore.mainCurrency && accountBalanceInBase(account.id) !== null"
+                  class="text-xs opacity-60"
+                >
+                  ≈ {{ formatCurrency(accountBalanceInBase(account.id)) }}
+                </p>
+                <p
+                  v-else-if="account.currency !== currencyStore.mainCurrency && hasCurrencyToken"
+                  class="text-xs opacity-60"
+                >
+                  Conversion pending…
+                </p>
+                <RouterLink :to="`/accounts/${account.id}`" class="link text-xs">View details</RouterLink>
+              </div>
+            </li>
+          </ul>
+        </div>
     </section>
 
     <section class="grid gap-4 lg:grid-cols-2">
@@ -56,7 +72,7 @@
             <RouterLink to="/categories" class="link text-xs">Manage categories</RouterLink>
           </div>
           <ul class="space-y-3">
-            <li v-for="category in topSpendingCategories" :key="category.id" class="space-y-1">
+            <li v-for="category in topSpendingCategories.categories" :key="category.id" class="space-y-1">
               <div class="flex items-center justify-between text-sm">
                 <div class="flex items-center gap-2">
                   <CategoryIcon :icon="category.icon" class="h-5 w-5" />
@@ -66,8 +82,9 @@
               </div>
               <progress class="progress progress-error" :value="category.percentage" max="100"></progress>
             </li>
-            <li v-if="!topSpendingCategories.length" class="text-sm opacity-60">No spending recorded yet.</li>
+            <li v-if="!topSpendingCategories.categories.length" class="text-sm opacity-60">No spending recorded yet.</li>
           </ul>
+          <p v-if="topSpendingCategories.pending" class="text-xs opacity-60">Waiting for exchange rates…</p>
         </div>
       </article>
       <article class="card bg-base-100 shadow">
@@ -77,19 +94,25 @@
             <RouterLink to="/transactions" class="link text-xs">See all</RouterLink>
           </div>
           <ul class="space-y-3">
-            <li v-for="tx in visibleRecentTransactions" :key="tx.id" class="flex items-center justify-between text-sm">
+            <li v-for="item in recentTransactionSummaries" :key="item.tx.id" class="flex items-center justify-between text-sm">
               <div class="flex items-center gap-3">
-                <CategoryIcon :icon="transactionIcon(tx)" class="h-6 w-6" />
+                <CategoryIcon :icon="transactionIcon(item.tx)" class="h-6 w-6" />
                 <div>
-                  <p class="font-medium">{{ renderTransactionTitle(tx) }}</p>
+                  <p class="font-medium">{{ renderTransactionTitle(item.tx) }}</p>
                   <p class="opacity-60">
-                    {{ formatDate(tx.occurredAt) }}
+                    {{ formatDate(item.tx.occurredAt) }}
                   </p>
                 </div>
               </div>
-              <span :class="txClass(tx)">{{ formatCurrency(txSign(tx) * tx.amount) }}</span>
+              <div class="text-right">
+                <span :class="txClass(item.tx)">{{ item.primary }}</span>
+                <p v-if="item.converted" class="text-xs opacity-60">
+                  ≈ {{ item.converted }}
+                </p>
+                <p v-else-if="item.pendingConversion" class="text-xs opacity-60">Conversion pending…</p>
+              </div>
             </li>
-            <li v-if="!visibleRecentTransactions.length" class="text-sm opacity-60">
+            <li v-if="!recentTransactionSummaries.length" class="text-sm opacity-60">
               Add your first transaction to populate insights.
             </li>
           </ul>
@@ -104,6 +127,7 @@ import { computed } from 'vue';
 import { useAccountsStore } from '@/stores/accounts';
 import { useTransactionsStore } from '@/stores/transactions';
 import { useCategoriesStore } from '@/stores/categories';
+import { useCurrencyStore } from '@/stores/currency';
 import { RouterLink } from 'vue-router';
 import CategoryIcon from '@/components/CategoryIcon.vue';
 
@@ -121,7 +145,22 @@ if (!categoriesStore.initialized) {
   categoriesStore.init();
 }
 
-const totalWorth = computed(() => accountsStore.totalWorth);
+const currencyStore = useCurrencyStore();
+
+const totalWorth = computed(() => currencyStore.totalWorthInMain.value);
+
+function convertAmountForAccount(amount, account) {
+  const baseCurrency = currencyStore.mainCurrency.value;
+  const sourceCurrency = account?.currency || baseCurrency;
+  const converted = currencyStore.convertAmount(amount, sourceCurrency, baseCurrency, {
+    requestIfMissing: true
+  });
+  if (converted === null && sourceCurrency !== baseCurrency) {
+    return { value: 0, pending: true };
+  }
+  const fallback = Number(amount) || 0;
+  return { value: (converted ?? fallback), pending: false };
+}
 
 const currentMonth = computed(() => {
   const now = new Date();
@@ -132,6 +171,7 @@ const currentMonth = computed(() => {
   let spent = 0;
   let saved = 0;
   let prevSpent = 0;
+  let pending = false;
 
   for (const tx of transactionsStore.transactions) {
     const account = accountsStore.accountById(tx.accountId);
@@ -140,18 +180,23 @@ const currentMonth = computed(() => {
     const amount = Number(tx.amount) || 0;
     const isExpense = tx.type === 'debit' || (tx.type === 'transfer' && tx.direction === 'outgoing');
     const isIncome = tx.type === 'credit' || (tx.type === 'transfer' && tx.direction === 'incoming');
+    const conversion = convertAmountForAccount(amount, account);
+    if (conversion.pending) {
+      pending = true;
+      continue;
+    }
 
     if (date >= startOfMonth) {
-      if (isExpense) spent += amount;
-      if (isIncome) saved += amount;
+      if (isExpense) spent += conversion.value;
+      if (isIncome) saved += conversion.value;
     } else if (date >= startOfPrevMonth && date <= endOfPrevMonth) {
-      if (isExpense) prevSpent += amount;
+      if (isExpense) prevSpent += conversion.value;
     }
   }
 
   const delta = spent - prevSpent;
   const deltaLabel = prevSpent
-    ? `${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta / prevSpent * 100).toFixed(1)}% vs last month`
+    ? `${delta >= 0 ? '▲' : '▼'} ${Math.abs((delta / prevSpent) * 100).toFixed(1)}% vs last month`
     : 'First month of tracking';
   const deltaClass = delta >= 0 ? 'text-error text-xs' : 'text-success text-xs';
 
@@ -159,7 +204,8 @@ const currentMonth = computed(() => {
     spent,
     saved: Math.max(saved - spent, 0),
     deltaLabel,
-    deltaClass
+    deltaClass,
+    pending
   };
 });
 
@@ -167,6 +213,7 @@ const topSpendingCategories = computed(() => {
   const totals = new Map();
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  let pending = false;
 
   for (const tx of transactionsStore.transactions) {
     const account = accountsStore.accountById(tx.accountId);
@@ -177,7 +224,12 @@ const topSpendingCategories = computed(() => {
     if (!isExpense) continue;
     const key = tx.categoryId ?? 'uncategorized';
     const amount = Number(tx.amount) || 0;
-    totals.set(key, (totals.get(key) ?? 0) + amount);
+    const conversion = convertAmountForAccount(amount, account);
+    if (conversion.pending) {
+      pending = true;
+      continue;
+    }
+    totals.set(key, (totals.get(key) ?? 0) + conversion.value);
   }
 
   const entries = Array.from(totals.entries())
@@ -195,10 +247,13 @@ const topSpendingCategories = computed(() => {
 
   const max = entries[0]?.total ?? 1;
 
-  return entries.map((entry) => ({
-    ...entry,
-    percentage: Math.round((entry.total / max) * 100)
-  }));
+  return {
+    pending,
+    categories: entries.map((entry) => ({
+      ...entry,
+      percentage: Math.round((entry.total / max) * 100)
+    }))
+  };
 });
 
 const recentTransactions = computed(() => transactionsStore.transactions.slice(0, 5));
@@ -206,12 +261,38 @@ const visibleRecentTransactions = computed(() =>
   recentTransactions.value.filter((tx) => !accountsStore.accountById(tx.accountId)?.isClosed)
 );
 
-function formatCurrency(value) {
-  return new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD'
-  }).format(Number(value ?? 0));
+function formatCurrency(value, currency = currencyStore.mainCurrency.value) {
+  return currencyStore.formatCurrency(value, currency);
 }
+
+const accountConversions = currencyStore.convertedAccountBalances;
+const hasCurrencyToken = computed(() => currencyStore.hasToken.value);
+
+function accountBalanceInBase(accountId) {
+  return accountConversions.value?.get?.(accountId) ?? null;
+}
+
+const recentTransactionSummaries = computed(() =>
+  visibleRecentTransactions.value.map((tx) => {
+    const account = accountsStore.accountById(tx.accountId);
+    const baseAmount = convertAmountForAccount(Number(tx.amount) || 0, account);
+    const sign = txSign(tx);
+    const accountCurrency = account?.currency || currencyStore.mainCurrency.value;
+    const primary = formatCurrency(sign * (Number(tx.amount) || 0), accountCurrency);
+    const converted =
+      accountCurrency !== currencyStore.mainCurrency.value && !baseAmount.pending
+        ? formatCurrency(sign * baseAmount.value)
+        : null;
+    const pendingConversion =
+      accountCurrency !== currencyStore.mainCurrency.value && baseAmount.pending;
+    return {
+      tx,
+      primary,
+      converted,
+      pendingConversion
+    };
+  })
+);
 
 function formatDate(date) {
   return date ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date) : 'Unknown date';

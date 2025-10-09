@@ -21,10 +21,27 @@
                 <h2 class="card-title">{{ account.name }}</h2>
               </div>
               <p class="text-xs opacity-70">Cycle day: {{ account.cycleDay ?? 'Not set' }}</p>
+              <p class="text-xs opacity-70">
+                Currency: {{ currencyStore.describeCurrency(account.currency) }} ({{ account.currency }})
+              </p>
             </div>
             <div class="text-right">
               <p class="text-sm opacity-70">Balance</p>
-              <p class="text-2xl font-semibold">{{ formatCurrency(account.balance) }}</p>
+              <p class="text-2xl font-semibold">
+                {{ currencyStore.formatCurrency(account.balance, account.currency) }}
+              </p>
+              <p
+                v-if="account.currency !== currencyStore.mainCurrency && accountCurrencyInBase(account.id) !== null"
+                class="text-xs opacity-60"
+              >
+                ≈ {{ currencyStore.formatCurrency(accountCurrencyInBase(account.id)) }}
+              </p>
+              <p
+                v-else-if="account.currency !== currencyStore.mainCurrency && hasCurrencyToken"
+                class="text-xs opacity-60"
+              >
+                Conversion pending…
+              </p>
             </div>
           </div>
           <div class="card-actions justify-end gap-2">
@@ -54,11 +71,19 @@
                 <span class="badge badge-outline badge-sm">Closed</span>
               </div>
               <div class="text-right">
-                <p class="text-sm opacity-70">Final balance</p>
-                <p class="text-xl font-semibold">{{ formatCurrency(account.balance) }}</p>
-              </div>
+              <p class="text-sm opacity-70">Final balance</p>
+              <p class="text-xl font-semibold">
+                {{ currencyStore.formatCurrency(account.balance, account.currency) }}
+              </p>
+              <p
+                v-if="account.currency !== currencyStore.mainCurrency && accountCurrencyInBase(account.id) !== null"
+                class="text-xs opacity-60"
+              >
+                ≈ {{ currencyStore.formatCurrency(accountCurrencyInBase(account.id)) }}
+              </p>
             </div>
-            <p class="text-xs opacity-60">Closed on {{ formatDate(account.closedAt) }}</p>
+          </div>
+          <p class="text-xs opacity-60">Closed on {{ formatDate(account.closedAt) }}</p>
             <div class="card-actions justify-end">
               <RouterLink class="btn btn-ghost btn-sm" :to="`/accounts/${account.id}`">View history</RouterLink>
             </div>
@@ -122,6 +147,24 @@
                       placeholder="Select billing cycle day"
                     />
                   </label>
+                  <label class="form-control w-full">
+                    <span class="label-text">Currency</span>
+                    <select
+                      v-model="form.currency"
+                      class="select select-bordered"
+                      :disabled="!hasCurrencyToken"
+                    >
+                      <option v-for="option in currencyOptions" :key="option.code" :value="option.code">
+                        {{ option.code }} — {{ option.name }}
+                      </option>
+                    </select>
+                    <span class="label-text-alt">
+                      {{ hasCurrencyToken
+                        ? 'Select the currency for this account.'
+                        : 'Set an API token in Settings → Currency to enable this field.'
+                      }}
+                    </span>
+                  </label>
                   <div class="flex justify-end gap-2 pt-2">
                     <button type="button" class="btn btn-ghost" @click="openCreate = false">Cancel</button>
                     <button type="submit" class="btn btn-primary" :class="{ loading: isSubmitting }">Create</button>
@@ -177,6 +220,24 @@
                       placeholder="Leave blank to unset"
                     />
                   </label>
+                  <label class="form-control w-full">
+                    <span class="label-text">Currency</span>
+                    <select
+                      v-model="editForm.currency"
+                      class="select select-bordered"
+                      :disabled="!hasCurrencyToken"
+                    >
+                      <option v-for="option in currencyOptions" :key="option.code" :value="option.code">
+                        {{ option.code }} — {{ option.name }}
+                      </option>
+                    </select>
+                    <span class="label-text-alt">
+                      {{ hasCurrencyToken
+                        ? 'Changing the currency does not adjust existing balances or transactions.'
+                        : 'Set an API token in Settings → Currency to enable this field.'
+                      }}
+                    </span>
+                  </label>
                   <div class="flex justify-end gap-2 pt-2">
                     <button type="button" class="btn btn-ghost" @click="openEdit = false">Cancel</button>
                     <button type="submit" class="btn btn-primary" :class="{ loading: isUpdating }">Save changes</button>
@@ -205,9 +266,12 @@ import { computed, reactive, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } from '@headlessui/vue';
 import { useAccountsStore } from '@/stores/accounts';
+import { useCurrencyStore } from '@/stores/currency';
+import currencyList from '@/utils/currencies';
 import ConfirmationDialog from '@/components/ConfirmationDialog.vue';
 
 const accountsStore = useAccountsStore();
+const currencyStore = useCurrencyStore();
 if (!accountsStore.initialized) {
   accountsStore.init();
 }
@@ -221,13 +285,15 @@ const accountToClose = ref(null);
 const form = reactive({
   name: '',
   openingBalance: 0,
-  cycleDay: null
+  cycleDay: null,
+  currency: currencyStore.mainCurrency.value
 });
 
 const editForm = reactive({
   id: '',
   name: '',
-  cycleDay: null
+  cycleDay: null,
+  currency: currencyStore.mainCurrency.value
 });
 
 const openAccounts = computed(() => accountsStore.openAccounts);
@@ -238,24 +304,38 @@ const closePrompt = computed(() =>
     : ''
 );
 
+const currencyOptions = currencyList;
+const hasCurrencyToken = computed(() => currencyStore.hasToken);
+const convertedBalances = currencyStore.convertedAccountBalances;
+
+watch(
+  currencyStore.mainCurrency,
+  (value) => {
+    if (!hasCurrencyToken.value) {
+      form.currency = value;
+      if (!openEdit.value) {
+        editForm.currency = value;
+      }
+    }
+  }
+);
+
 watch(openCloseDialog, (isOpen) => {
   if (!isOpen) {
     accountToClose.value = null;
   }
 });
 
-function formatCurrency(value) {
-  return new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD'
-  }).format(Number(value ?? 0));
+function accountCurrencyInBase(accountId) {
+  return convertedBalances.value?.get?.(accountId) ?? null;
 }
 
 function startEdit(account) {
   Object.assign(editForm, {
     id: account.id,
     name: account.name,
-    cycleDay: account.cycleDay
+    cycleDay: account.cycleDay,
+    currency: account.currency
   });
   openEdit.value = true;
 }
@@ -265,7 +345,8 @@ async function handleEdit() {
     isUpdating.value = true;
     await accountsStore.updateAccount(editForm.id, {
       name: editForm.name,
-      cycleDay: editForm.cycleDay || null
+      cycleDay: editForm.cycleDay || null,
+      currency: editForm.currency
     });
     openEdit.value = false;
   } catch (error) {
@@ -307,7 +388,12 @@ async function handleCreate() {
     isSubmitting.value = true;
     await accountsStore.createAccount(form);
     openCreate.value = false;
-    Object.assign(form, { name: '', openingBalance: 0, cycleDay: null });
+    Object.assign(form, {
+      name: '',
+      openingBalance: 0,
+      cycleDay: null,
+      currency: currencyStore.mainCurrency.value
+    });
   } catch (error) {
     console.error(error);
     alert(error.message ?? 'Failed to create account');
