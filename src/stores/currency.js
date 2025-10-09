@@ -1,13 +1,48 @@
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, reactive, ref, watch, nextTick } from 'vue';
 import { defineStore } from 'pinia';
 import { usePreferencesStore } from '@/stores/preferences';
 import { useAccountsStore } from '@/stores/accounts';
 import currencyList, { currencyNames } from '@/utils/currencies';
 
 const RATE_TTL = 60 * 60 * 1000; // 1 hour
+const STORAGE_KEY = 'currency_rates';
 
 function makeRateKey(from, to) {
   return `${from}_${to}`;
+}
+
+// localStorage utilities for currency rates
+function loadRatesFromStorage() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) return {};
+    
+    const data = JSON.parse(stored);
+    const now = Date.now();
+    const validRates = {};
+    
+    // Filter out expired rates
+    Object.entries(data).forEach(([key, value]) => {
+      if (value && typeof value === 'object' && value.fetchedAt && value.rate) {
+        if (now - value.fetchedAt < RATE_TTL) {
+          validRates[key] = value;
+        }
+      }
+    });
+    
+    return validRates;
+  } catch (error) {
+    console.warn('Failed to load currency rates from storage:', error);
+    return {};
+  }
+}
+
+function saveRatesToStorage(rates) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(rates));
+  } catch (error) {
+    console.warn('Failed to save currency rates to storage:', error);
+  }
 }
 
 export const useCurrencyStore = defineStore('currency', () => {
@@ -21,10 +56,12 @@ export const useCurrencyStore = defineStore('currency', () => {
     accountsStore.init();
   }
 
-  const rates = reactive({});
+  // Initialize rates from localStorage
+  const rates = reactive(loadRatesFromStorage());
   const pendingBatches = reactive(new Set());
   const lastError = ref('');
   const status = ref('idle');
+  const lastUpdate = ref(Date.now()); // Force reactivity trigger
 
   const mainCurrency = computed(() => preferencesStore.baseCurrency || 'USD');
   const apiToken = computed(() => preferencesStore.currencyToken || '');
@@ -34,13 +71,23 @@ export const useCurrencyStore = defineStore('currency', () => {
     for (const key of Object.keys(rates)) {
       delete rates[key];
     }
+    saveRatesToStorage({});
+    triggerReactivityUpdate();
+  }
+
+  function triggerReactivityUpdate() {
+    lastUpdate.value = Date.now();
+    // Force Vue to re-evaluate computed properties
+    nextTick();
   }
 
   watch(
     () => apiToken.value,
-    () => {
-      clearRates();
-      lastError.value = '';
+    (newToken, oldToken) => {
+      if (newToken !== oldToken) {
+        clearRates();
+        lastError.value = '';
+      }
     }
   );
 
@@ -123,6 +170,9 @@ export const useCurrencyStore = defineStore('currency', () => {
         }
       });
 
+      // Save to localStorage and trigger reactivity
+      saveRatesToStorage(rates);
+      triggerReactivityUpdate();
       lastError.value = '';
       
       // Return all requested rates (including cached and newly fetched)
@@ -206,6 +256,9 @@ export const useCurrencyStore = defineStore('currency', () => {
   }
 
   function convertAmount(amount, from, to = mainCurrency.value, { requestIfMissing = true } = {}) {
+    // Include lastUpdate in dependency tracking to force re-evaluation
+    lastUpdate.value; // This makes the function reactive to rate updates
+    
     const numericAmount = Number(amount);
     if (!Number.isFinite(numericAmount)) {
       return null;
@@ -238,6 +291,9 @@ export const useCurrencyStore = defineStore('currency', () => {
   }
 
   const convertedAccountBalances = computed(() => {
+    // Force reactivity by depending on lastUpdate
+    lastUpdate.value;
+    
     const results = new Map();
     const target = mainCurrency.value;
     for (const account of accountsStore.accounts) {
@@ -257,6 +313,9 @@ export const useCurrencyStore = defineStore('currency', () => {
   });
 
   const accountsMissingConversion = computed(() => {
+    // Force reactivity by depending on lastUpdate
+    lastUpdate.value;
+    
     const target = mainCurrency.value;
     const missing = [];
     for (const account of accountsStore.accounts) {
@@ -273,12 +332,16 @@ export const useCurrencyStore = defineStore('currency', () => {
   });
 
   const hasPendingConversions = computed(() => {
+    // Force reactivity by depending on lastUpdate
+    lastUpdate.value;
+    
     const target = mainCurrency.value;
     for (const account of accountsStore.accounts) {
       const sourceCurrency = account.currency || target;
       if (sourceCurrency === target) continue;
       const key = makeRateKey(sourceCurrency, target);
-      if (!rates[key]) {
+      const inverseKey = makeRateKey(target, sourceCurrency);
+      if (!rates[key] && !rates[inverseKey]) {
         return hasToken.value;
       }
     }
@@ -286,6 +349,9 @@ export const useCurrencyStore = defineStore('currency', () => {
   });
 
   const totalWorthInMain = computed(() => {
+    // Force reactivity by depending on lastUpdate
+    lastUpdate.value;
+    
     const target = mainCurrency.value;
     let total = 0;
     for (const account of accountsStore.accounts) {
@@ -311,6 +377,9 @@ export const useCurrencyStore = defineStore('currency', () => {
     [() => mainCurrency.value, () => accountsStore.accounts.map(a => a.currency).join(','), () => hasToken.value],
     () => {
       if (hasToken.value && accountsStore.accounts.length > 0) {
+        // Clean expired rates first
+        cleanExpiredRates();
+        
         // Debounce the rate fetching to avoid rapid successive calls
         setTimeout(() => {
           requestNeededRates();
@@ -364,9 +433,33 @@ export const useCurrencyStore = defineStore('currency', () => {
     return Promise.resolve();
   }
 
+  // Add function to clean expired rates from storage
+  function cleanExpiredRates() {
+    const now = Date.now();
+    let hasExpiredRates = false;
+    
+    Object.keys(rates).forEach(key => {
+      const record = rates[key];
+      if (record && record.fetchedAt && now - record.fetchedAt >= RATE_TTL) {
+        delete rates[key];
+        hasExpiredRates = true;
+      }
+    });
+    
+    if (hasExpiredRates) {
+      saveRatesToStorage(rates);
+      triggerReactivityUpdate();
+    }
+  }
+
+  // Clean expired rates on startup and periodically
+  cleanExpiredRates();
+  setInterval(cleanExpiredRates, 5 * 60 * 1000); // Every 5 minutes
+
   return {
     status,
     lastError,
+    lastUpdate: computed(() => lastUpdate.value), // Expose as computed for reactivity
     supportedCurrencies: currencyList,
     mainCurrency,
     apiToken,
@@ -382,6 +475,7 @@ export const useCurrencyStore = defineStore('currency', () => {
     fetchRate, // Keep for backward compatibility
     requestNeededRates,
     forceRefreshRates,
+    cleanExpiredRates,
     setMainCurrency,
     setApiToken
   };
