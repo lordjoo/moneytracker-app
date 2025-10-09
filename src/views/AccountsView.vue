@@ -159,10 +159,12 @@
                       </option>
                     </select>
                     <span class="label-text-alt">
-                      {{ hasCurrencyToken
-                        ? 'Select the currency for this account.'
-                        : 'Set an API token in Settings → Currency to enable this field.'
-                      }}
+                      <span v-if="hasCurrencyToken" class="text-success">
+                        ✓ Multi-currency enabled — Select the currency for this account.
+                      </span>
+                      <span v-else class="text-warning">
+                        ⚠ Set an API token in Settings → Currency to enable per-account currencies.
+                      </span>
                     </span>
                   </label>
                   <div class="flex justify-end gap-2 pt-2">
@@ -232,10 +234,12 @@
                       </option>
                     </select>
                     <span class="label-text-alt">
-                      {{ hasCurrencyToken
-                        ? 'Changing the currency does not adjust existing balances or transactions.'
-                        : 'Set an API token in Settings → Currency to enable this field.'
-                      }}
+                      <span v-if="hasCurrencyToken" class="text-info">
+                        ℹ Changing the currency does not adjust existing balances or transactions.
+                      </span>
+                      <span v-else class="text-warning">
+                        ⚠ Set an API token in Settings → Currency to enable per-account currencies.
+                      </span>
                     </span>
                   </label>
                   <div class="flex justify-end gap-2 pt-2">
@@ -305,11 +309,11 @@ const closePrompt = computed(() =>
 );
 
 const currencyOptions = currencyList;
-const hasCurrencyToken = computed(() => currencyStore.hasToken.value);
+const hasCurrencyToken = computed(() => currencyStore.hasToken);
 const convertedBalances = currencyStore.convertedAccountBalances;
 
 watch(
-  currencyStore.mainCurrency,
+  () => currencyStore.mainCurrency,
   (value) => {
     if (!hasCurrencyToken.value) {
       form.currency = value;
