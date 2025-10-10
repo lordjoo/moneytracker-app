@@ -15,7 +15,7 @@
         <span class="label-text">Account</span>
         <select v-model="filters.accountId" class="select select-bordered">
           <option value="">All accounts</option>
-          <option v-for="account in accountsStore.sortedAccounts" :key="account.id" :value="account.id">
+          <option v-for="account in accountsStore.sortedAccounts || []" :key="account.id" :value="account.id">
             {{ account.name }}{{ account.isClosed ? ' (Closed)' : '' }}
           </option>
         </select>
@@ -24,7 +24,7 @@
         <span class="label-text">Category</span>
         <select v-model="filters.categoryId" class="select select-bordered">
           <option value="">All categories</option>
-          <option v-for="category in categoriesStore.categories" :key="category.id" :value="category.id">
+          <option v-for="category in categoriesStore.categories || []" :key="category.id" :value="category.id">
             {{ category.name }}
           </option>
         </select>
@@ -36,7 +36,7 @@
         <h2 class="card-title">History</h2>
         <div class="divide-y divide-base-300">
           <article
-            v-for="item in transactionSummaries"
+            v-for="item in transactionSummaries || []"
             :key="item.tx.id"
             class="flex flex-col gap-2 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
           >
@@ -94,11 +94,11 @@
                     <span class="label-text">Account</span>
                     <select v-model="form.accountId" class="select select-bordered" :disabled="!openAccounts.length" required>
                       <option disabled value="">Select account</option>
-                      <option v-for="account in openAccounts" :key="account.id" :value="account.id">
+                      <option v-for="account in openAccounts || []" :key="account.id" :value="account.id">
                         {{ account.name }}
                       </option>
                     </select>
-                    <span v-if="!openAccounts.length" class="label-text-alt text-warning">
+                    <span v-if="!(openAccounts && openAccounts.length)" class="label-text-alt text-warning">
                       Close this dialog once an account is reopened or created.
                     </span>
                   </label>
@@ -112,7 +112,7 @@
                   </label>
                   <label class="form-control w-full">
                     <span class="label-text">Amount</span>
-                    <input v-model.number="form.amount" type="number" min="0" step="0.01" class="input input-bordered" required />
+                    <input v-model.number="form.amount" type="number" min="0" step="0.01" class="input input-bordered" :placeholder="'0'" required />
                   </label>
                   <label class="form-control w-full">
                     <span class="label-text">Date</span>
@@ -120,25 +120,18 @@
                   </label>
                   <label class="form-control w-full" v-if="form.type !== 'transfer'">
                     <span class="label-text">Category</span>
-                    <select v-model="form.categoryId" class="select select-bordered" required>
-                      <option disabled value="">Select a category</option>
-                      <optgroup label="Income" v-if="incomeCategories.length">
-                        <option v-for="cat in incomeCategories" :key="cat.id" :value="cat.id" v-if="form.type === 'credit'">
-                          {{ cat.name }}
-                        </option>
-                      </optgroup>
-                      <optgroup label="Expenses" v-if="expenseCategories.length">
-                        <option v-for="cat in expenseCategories" :key="cat.id" :value="cat.id" v-if="form.type === 'debit'">
-                          {{ cat.name }}
-                        </option>
-                      </optgroup>
-                    </select>
+                    <CategorySelect
+                      v-model="form.categoryId"
+                      :options="(form.type === 'credit' ? incomeCategories : expenseCategories).map(cat => ({ id: cat.id, name: cat.name, icon: cat.icon }))"
+                      placeholder="Search category..."
+                      required
+                    />
                   </label>
-                  <label class="form-control w-full" v-else>
+                  <label class="form-control w-full" v-else-if="form.type === 'transfer'">
                     <span class="label-text">Transfer to</span>
                     <select v-model="form.counterpartyAccountId" class="select select-bordered" required>
                       <option disabled value="">Select destination account</option>
-                      <option v-for="account in transferTargets" :key="account.id" :value="account.id">
+                      <option v-for="account in transferTargets || []" :key="account.id" :value="account.id">
                         {{ account.name }}
                       </option>
                     </select>
@@ -175,6 +168,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } from '@headlessui/vue';
 import { useRoute, useRouter } from 'vue-router';
 import CategoryIcon from '@/components/CategoryIcon.vue';
+import CategorySelect from '@/components/CategorySelect.vue';
 import { useAccountsStore } from '@/stores/accounts';
 import { useTransactionsStore } from '@/stores/transactions';
 import { useCategoriesStore } from '@/stores/categories';
@@ -209,7 +203,7 @@ const isSaving = ref(false);
 const form = reactive({
   accountId: '',
   type: 'debit',
-  amount: 0,
+  amount: null,
   date: new Date().toISOString().slice(0, 10),
   categoryId: '',
   counterpartyAccountId: '',
@@ -263,17 +257,17 @@ const filteredTransactions = computed(() => {
   });
 });
 const transactionSummaries = computed(() =>
-  filteredTransactions.value.map((tx) => ({
+  (filteredTransactions.value || []).map((tx) => ({
     tx,
     ...describeTransactionAmount(tx)
   }))
 );
-const expenseCategories = computed(() => categoriesStore.expenseCategories);
-const incomeCategories = computed(() => categoriesStore.incomeCategories);
-const openAccounts = computed(() => accountsStore.openAccounts);
-const canRecord = computed(() => openAccounts.value.length > 0);
+const expenseCategories = computed(() => categoriesStore.expenseCategories || []);
+const incomeCategories = computed(() => categoriesStore.incomeCategories || []);
+const openAccounts = computed(() => accountsStore.openAccounts || []);
+const canRecord = computed(() => (openAccounts.value?.length ?? 0) > 0);
 const transferTargets = computed(() =>
-  openAccounts.value.filter((account) => account.id !== form.accountId)
+  (openAccounts.value || []).filter((account) => account.id !== form.accountId)
 );
 
 watch(
@@ -394,7 +388,7 @@ async function handleSave() {
     Object.assign(form, {
       accountId: '',
       type: 'debit',
-      amount: 0,
+      amount: null,
       date: new Date().toISOString().slice(0, 10),
       categoryId: '',
       counterpartyAccountId: '',

@@ -118,7 +118,7 @@ const netWorthLabel = computed(() =>
   currencyStore.formatCurrency(currencyStore.totalWorthInMain.value)
 );
 const showNetWorthHint = computed(
-  () => currencyStore.accountsMissingConversion.value.length > 0
+  () => (currencyStore.accountsMissingConversion.value || []).length > 0
 );
 
 onMounted(async () => {
