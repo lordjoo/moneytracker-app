@@ -14,8 +14,8 @@
           <button class="btn btn-outline btn-sm" @click="toggleTheme" :aria-label="themeLabel">
             <component :is="themeIcon" class="h-4 w-4" />
           </button>
-          <RouterLink to="/settings" class="btn btn-ghost btn-sm">
-            Settings
+          <RouterLink to="/more" class="btn btn-ghost btn-sm">
+            More
           </RouterLink>
         </div>
       </div>
@@ -76,7 +76,7 @@ import {
   BanknotesIcon,
   ArrowsRightLeftIcon,
   TagIcon,
-  Cog6ToothIcon
+  EllipsisHorizontalCircleIcon
 } from '@heroicons/vue/24/outline';
 import { useAuthStore } from '@/stores/auth';
 import { useAccountsStore } from '@/stores/accounts';
@@ -106,7 +106,7 @@ const navigation = computed(() => [
   { to: '/accounts', label: 'Accounts', icon: BanknotesIcon, active: route.path.startsWith('/accounts') },
   { to: '/transactions', label: 'Transactions', icon: ArrowsRightLeftIcon, active: route.path.startsWith('/transactions') },
   { to: '/categories', label: 'Categories', icon: TagIcon, active: route.path.startsWith('/categories') },
-  { to: '/settings', label: 'Settings', icon: Cog6ToothIcon, active: route.path.startsWith('/settings') }
+  { to: '/more', label: 'More', icon: EllipsisHorizontalCircleIcon, active: route.path.startsWith('/more') || route.path.startsWith('/settings') }
 ]);
 
 const themeIcon = computed(() => (theme.value === 'mymoney-dark' ? SunIcon : MoonIcon));

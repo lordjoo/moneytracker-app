@@ -268,6 +268,29 @@ export const useTransactionsStore = defineStore('transactions', {
       const delta = type === 'credit' ? value : -value;
       accountsStore.applyBalanceDelta(accountId, delta);
     },
+    updateTransaction(id, updates) {
+      this.ensureInitialised();
+      const accountsStore = useAccountsStore();
+      const target = this.transactions.find((tx) => tx.id === id);
+      if (!target) {
+        throw new Error('Transaction not found');
+      }
+
+      // For now, we'll delete and recreate to handle all the balance logic
+      // First, reverse the old transaction's balance effects
+      this.deleteTransaction(id);
+      
+      // Then create a new transaction with the updated data
+      this.addTransaction({
+        type: updates.type ?? target.type,
+        accountId: updates.accountId ?? target.accountId,
+        amount: updates.amount ?? target.amount,
+        categoryId: updates.categoryId ?? target.categoryId,
+        note: updates.note ?? target.note,
+        occurredAt: updates.occurredAt ?? target.occurredAt,
+        counterpartyAccountId: updates.counterpartyAccountId ?? target.counterpartyAccountId
+      });
+    },
     deleteTransaction(id) {
       this.ensureInitialised();
       const accountsStore = useAccountsStore();

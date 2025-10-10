@@ -8,4 +8,4 @@ node_modules
 coverage
 .firebase
 dist/
-dev-dist/
+dev-dist

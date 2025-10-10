@@ -5,7 +5,10 @@ import AccountDetailView from '@/views/AccountDetailView.vue';
 import TransactionsView from '@/views/TransactionsView.vue';
 import CategoriesView from '@/views/CategoriesView.vue';
 import SettingsView from '@/views/SettingsView.vue';
+import MoreView from '@/views/MoreView.vue';
 import OnboardingView from '@/views/OnboardingView.vue';
+import BackupAccountSettings from '@/components/settings/BackupAccountSettings.vue';
+import CurrencySettings from '@/components/settings/CurrencySettings.vue';
 import { usePreferencesStore } from '@/stores/preferences';
 
 const router = createRouter({
@@ -21,7 +24,25 @@ const router = createRouter({
     },
     { path: '/transactions', name: 'transactions', component: TransactionsView },
     { path: '/categories', name: 'categories', component: CategoriesView },
-    { path: '/settings', name: 'settings', component: SettingsView },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: SettingsView,
+      redirect: { name: 'settings-backup' },
+      children: [
+        {
+          path: 'backup',
+          name: 'settings-backup',
+          component: BackupAccountSettings
+        },
+        {
+          path: 'currency',
+          name: 'settings-currency',
+          component: CurrencySettings
+        }
+      ]
+    },
+    { path: '/more', name: 'more', component: MoreView },
     { path: '/welcome', name: 'onboarding', component: OnboardingView, meta: { fullscreen: true } }
   ]
 });
