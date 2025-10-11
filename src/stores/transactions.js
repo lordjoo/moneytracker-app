@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { generateId, parseDate, readJson, writeJson } from '@/utils/storage';
 import { useAccountsStore } from './accounts';
+import { useCurrencyStore } from './currency';
 
 const STORAGE_KEY = 'transactions';
 
@@ -205,6 +206,25 @@ export const useTransactionsStore = defineStore('transactions', {
           throw new Error('Cannot transfer to a closed account');
         }
 
+        // Handle currency conversion for transfers between different currencies
+        const sourceCurrency = sourceAccount.currency;
+        const destinationCurrency = destinationAccount.currency;
+        let convertedAmount = value;
+        
+        if (sourceCurrency !== destinationCurrency) {
+          const currencyStore = useCurrencyStore();
+          const converted = currencyStore.convertAmount(value, sourceCurrency, destinationCurrency, {
+            requestIfMissing: true
+          });
+          
+          if (converted !== null) {
+            convertedAmount = converted;
+          } else {
+            // If conversion fails, warn the user but proceed with same amount
+            console.warn(`Could not convert ${value} from ${sourceCurrency} to ${destinationCurrency}. Using same amount.`);
+          }
+        }
+
         const groupId = generateId('txgrp');
         const outgoing = {
           id: generateId('tx'),
@@ -226,7 +246,7 @@ export const useTransactionsStore = defineStore('transactions', {
           direction: 'incoming',
           accountId: counterpartyAccountId,
           counterpartyAccountId: accountId,
-          amount: value,
+          amount: convertedAmount, // Use converted amount for destination account
           categoryId: 'transfer',
           note: trimmedNote,
           occurredAt: timestamp,
@@ -238,7 +258,7 @@ export const useTransactionsStore = defineStore('transactions', {
         this.transactions = sortTransactions([...this.transactions, outgoing, incoming]);
         this.persist();
         accountsStore.applyBalanceDelta(accountId, -value);
-        accountsStore.applyBalanceDelta(counterpartyAccountId, value);
+        accountsStore.applyBalanceDelta(counterpartyAccountId, convertedAmount); // Use converted amount
         return;
       }
 
@@ -280,16 +300,24 @@ export const useTransactionsStore = defineStore('transactions', {
       // First, reverse the old transaction's balance effects
       this.deleteTransaction(id);
       
-      // Then create a new transaction with the updated data
-      this.addTransaction({
+      // Build the update data based on transaction type
+      const updateData = {
         type: updates.type ?? target.type,
         accountId: updates.accountId ?? target.accountId,
         amount: updates.amount ?? target.amount,
-        categoryId: updates.categoryId ?? target.categoryId,
         note: updates.note ?? target.note,
-        occurredAt: updates.occurredAt ?? target.occurredAt,
-        counterpartyAccountId: updates.counterpartyAccountId ?? target.counterpartyAccountId
-      });
+        occurredAt: updates.occurredAt ?? target.occurredAt
+      };
+      
+      // Add type-specific fields
+      if (updateData.type === 'transfer') {
+        updateData.counterpartyAccountId = updates.counterpartyAccountId ?? target.counterpartyAccountId;
+      } else {
+        updateData.categoryId = updates.categoryId ?? target.categoryId;
+      }
+      
+      // Then create a new transaction with the updated data
+      this.addTransaction(updateData);
     },
     deleteTransaction(id) {
       this.ensureInitialised();

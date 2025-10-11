@@ -17,293 +17,37 @@
       </button>
     </header>
 
-    <!-- Quick Filters and Search -->
-    <section class="card bg-base-100 shadow">
-      <div class="card-body p-5">
-        <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <!-- Search -->
-          <div class="flex-1 max-w-md">
-            <label class="form-control w-full">
-              <div class="label pb-2">
-                <span class="label-text text-xs font-medium">Search</span>
-              </div>
-              <div class="relative">
-                <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-50" />
-                <input 
-                  v-model="searchQuery" 
-                  type="text" 
-                  placeholder="Search transactions..." 
-                  class="input input-bordered input-sm w-full pl-9"
-                />
-              </div>
-            </label>
-          </div>
-
-          <!-- Filters -->
-          <div class="flex flex-wrap gap-3">
-            <label class="form-control w-40">
-              <div class="label pb-2">
-                <span class="label-text text-xs font-medium">Account</span>
-              </div>
-              <select v-model="filters.accountId" class="select select-bordered select-sm">
-                <option value="">All</option>
-                <option v-for="account in accountsStore.sortedAccounts || []" :key="account.id" :value="account.id">
-                  {{ account.name }}
-                </option>
-              </select>
-            </label>
-            <label class="form-control w-40">
-              <div class="label pb-2">
-                <span class="label-text text-xs font-medium">Category</span>
-              </div>
-              <select v-model="filters.categoryId" class="select select-bordered select-sm">
-                <option value="">All</option>
-                <option v-for="category in categoriesStore.categories || []" :key="category.id" :value="category.id">
-                  {{ category.name }}
-                </option>
-              </select>
-            </label>
-            <label class="form-control w-32">
-              <div class="label pb-2">
-                <span class="label-text text-xs font-medium">Type</span>
-              </div>
-              <select v-model="filters.type" class="select select-bordered select-sm">
-                <option value="">All</option>
-                <option value="credit">Credit</option>
-                <option value="debit">Debit</option>
-                <option value="transfer">Transfer</option>
-              </select>
-            </label>
-          </div>
-        </div>
-      </div>
-    </section>
+    <!-- Filters -->
+    <TransactionFilters
+      v-model:search="searchQuery"
+      v-model:filters="filters"
+      :accounts="accountsStore.sortedAccounts || []"
+      :categories="categoriesStore.categories || []"
+    />
 
     <!-- Transactions List -->
-    <div v-if="groupedTransactions.length > 0" class="space-y-4">
-      <div v-for="group in groupedTransactions" :key="group.date" class="space-y-2">
-        <!-- Date Header -->
-        <div class="flex items-center gap-3">
-          <h3 class="text-sm font-semibold opacity-70">{{ group.dateLabel }}</h3>
-          <div class="flex-1 h-px bg-base-300"></div>
-          <span class="text-xs opacity-50">{{ group.transactions.length }} transaction{{ group.transactions.length !== 1 ? 's' : '' }}</span>
-        </div>
-
-        <!-- Transaction Cards -->
-        <div class="space-y-2">
-          <article
-            v-for="item in group.transactions"
-            :key="item.tx.id"
-            class="card bg-base-100 shadow-sm hover:shadow-md transition-shadow"
-          >
-            <div class="card-body p-4">
-              <div class="flex items-start justify-between gap-3">
-                <!-- Icon and Details -->
-                <div class="flex items-start gap-3 flex-1 min-w-0">
-                  <div class="mt-0.5">
-                    <div class="p-2 rounded-lg" :class="getTransactionBgClass(item.tx)">
-                      <CategoryIcon :icon="transactionIcon(item.tx)" class="h-5 w-5" />
-                    </div>
-                  </div>
-                  <div class="flex-1 min-w-0 space-y-1">
-                    <div class="flex items-center gap-2">
-                      <h4 class="font-medium truncate">{{ renderTransactionTitle(item.tx) }}</h4>
-                      <span class="badge badge-sm" :class="getTypeBadgeClass(item.tx.type)">
-                        {{ item.tx.type }}
-                      </span>
-                    </div>
-                    <div class="flex flex-wrap items-center gap-2 text-xs opacity-60">
-                      <span class="flex items-center gap-1">
-                        <BanknotesIcon class="h-3 w-3" />
-                        {{ accountsStore.accountById(item.tx.accountId)?.name ?? 'Unknown' }}
-                      </span>
-                      <span>·</span>
-                      <span class="flex items-center gap-1">
-                        <ClockIcon class="h-3 w-3" />
-                        {{ formatTime(item.tx.occurredAt) }}
-                      </span>
-                    </div>
-                    <p v-if="item.tx.note" class="text-sm opacity-70 line-clamp-2">{{ item.tx.note }}</p>
-                  </div>
-                </div>
-
-                <!-- Amount and Actions -->
-                <div class="flex items-start gap-2">
-                  <div class="text-right">
-                    <p class="font-semibold" :class="txClass(item.tx)">
-                      {{ item.formattedAccount }}
-                    </p>
-                    <p v-if="item.formattedBase" class="text-xs opacity-60">
-                      ≈ {{ item.formattedBase }}
-                    </p>
-                    <p v-else-if="item.pending" class="text-xs opacity-60">
-                      Pending...
-                    </p>
-                  </div>
-                  
-                  <!-- Actions Dropdown -->
-                  <div class="dropdown dropdown-end">
-                    <label tabindex="0" class="btn btn-ghost btn-sm btn-square">
-                      <EllipsisVerticalIcon class="h-4 w-4" />
-                    </label>
-                    <ul tabindex="0" class="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-40 border border-base-300 z-10">
-                      <li>
-                        <button @click="openTransactionForm(item.tx)" class="text-sm gap-2">
-                          <PencilIcon class="h-4 w-4" />
-                          Edit
-                        </button>
-                      </li>
-                      <li>
-                        <button @click="requestDelete(item.tx)" class="text-sm gap-2 text-error hover:bg-error hover:text-error-content">
-                          <TrashIcon class="h-4 w-4" />
-                          Delete
-                        </button>
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </article>
-        </div>
-      </div>
-    </div>
-
-    <!-- Empty State -->
-    <div v-else class="card bg-base-100 shadow">
-      <div class="card-body items-center text-center py-12">
-        <div class="p-4 rounded-full bg-base-200 mb-4">
-          <BanknotesIcon class="h-12 w-12 opacity-50" />
-        </div>
-        <h3 class="text-lg font-semibold">No transactions found</h3>
-        <p class="text-sm opacity-70 max-w-sm">
-          {{ searchQuery || filters.accountId || filters.categoryId || filters.type 
-            ? 'Try adjusting your filters or search term' 
-            : 'Start by adding your first transaction' 
-          }}
-        </p>
-        <button 
-          v-if="canRecord" 
-          class="btn btn-primary btn-sm gap-2 mt-4" 
-          @click="openTransactionForm()"
-        >
-          <PlusIcon class="h-4 w-4" />
-          Add Transaction
-        </button>
-      </div>
-    </div>
+    <TransactionList
+      :grouped-transactions="groupedTransactions"
+      :empty-message="emptyStateMessage"
+      :can-add-transaction="canRecord"
+      @edit="openTransactionForm"
+      @delete="requestDelete"
+      @add="openTransactionForm()"
+    />
 
     <!-- Transaction Form Dialog -->
-    <TransitionRoot appear :show="openForm" as="template">
-      <Dialog as="div" class="relative z-50" @close="closeForm">
-        <TransitionChild 
-          as="template" 
-          enter="ease-out duration-200" 
-          enter-from="opacity-0" 
-          enter-to="opacity-100" 
-          leave="ease-in duration-150" 
-          leave-from="opacity-100" 
-          leave-to="opacity-0"
-        >
-          <div class="fixed inset-0 bg-base-content/40" />
-        </TransitionChild>
-        <div class="fixed inset-0 overflow-y-auto">
-          <div class="flex min-h-full items-center justify-center px-4 py-8">
-            <TransitionChild
-              as="template"
-              enter="ease-out duration-200"
-              enter-from="opacity-0 scale-95"
-              enter-to="opacity-100 scale-100"
-              leave="ease-in duration-150"
-              leave-from="opacity-100 scale-100"
-              leave-to="opacity-0 scale-95"
-            >
-              <DialogPanel class="w-full max-w-lg rounded-2xl bg-base-100 p-6 shadow-xl">
-                <DialogTitle class="text-lg font-semibold flex items-center gap-2">
-                  {{ editingTransaction ? 'Edit Transaction' : 'New Transaction' }}
-                  <span v-if="editingTransaction" class="badge badge-primary badge-sm">Editing</span>
-                </DialogTitle>
-                <form class="mt-4 space-y-4" @submit.prevent="handleSave">
-                  <label class="form-control">
-                    <span class="label-text font-medium">Account</span>
-                    <select v-model="form.accountId" class="select select-bordered" :disabled="!openAccounts.length" required>
-                      <option disabled value="">Select account</option>
-                      <option v-for="account in openAccounts || []" :key="account.id" :value="account.id">
-                        {{ account.name }}
-                      </option>
-                    </select>
-                  </label>
-
-                  <label class="form-control">
-                    <span class="label-text font-medium">Type</span>
-                    <select v-model="form.type" class="select select-bordered" required>
-                      <option value="credit">Credit (money in)</option>
-                      <option value="debit">Debit (money out)</option>
-                      <option value="transfer">Transfer</option>
-                    </select>
-                  </label>
-
-                  <label class="form-control">
-                    <span class="label-text font-medium">Amount</span>
-                    <input 
-                      v-model.number="form.amount" 
-                      type="number" 
-                      min="0" 
-                      step="0.01" 
-                      class="input input-bordered" 
-                      placeholder="0.00" 
-                      required 
-                    />
-                  </label>
-
-                  <label class="form-control">
-                    <span class="label-text font-medium">Date</span>
-                    <input v-model="form.date" type="date" class="input input-bordered" required />
-                  </label>
-
-                  <label class="form-control" v-if="form.type !== 'transfer'">
-                    <span class="label-text font-medium">Category</span>
-                    <CategorySelect
-                      v-model="form.categoryId"
-                      :options="(form.type === 'credit' ? incomeCategories : expenseCategories).map(cat => ({ id: cat.id, name: cat.name, icon: cat.icon }))"
-                      placeholder="Search category..."
-                      required
-                    />
-                  </label>
-
-                  <label class="form-control" v-else-if="form.type === 'transfer'">
-                    <span class="label-text font-medium">Transfer to</span>
-                    <select v-model="form.counterpartyAccountId" class="select select-bordered" required>
-                      <option disabled value="">Select destination</option>
-                      <option v-for="account in transferTargets || []" :key="account.id" :value="account.id">
-                        {{ account.name }}
-                      </option>
-                    </select>
-                  </label>
-
-                  <label class="form-control">
-                    <span class="label-text font-medium">Note (optional)</span>
-                    <textarea 
-                      v-model="form.note" 
-                      class="textarea textarea-bordered" 
-                      rows="2" 
-                      placeholder="Add a note..."
-                    ></textarea>
-                  </label>
-
-                  <div class="flex justify-end gap-2 pt-2">
-                    <button type="button" class="btn btn-ghost" @click="closeForm">Cancel</button>
-                    <button type="submit" class="btn btn-primary" :class="{ loading: isSaving }">
-                      {{ editingTransaction ? 'Update' : 'Save' }}
-                    </button>
-                  </div>
-                </form>
-              </DialogPanel>
-            </TransitionChild>
-          </div>
-        </div>
-      </Dialog>
-    </TransitionRoot>
+    <TransactionFormDialog
+      :open="openForm"
+      v-model:form="form"
+      :is-editing="!!editingTransaction"
+      :is-saving="isSaving"
+      :accounts="openAccounts"
+      :category-options="categoryOptions"
+      :transfer-targets="transferTargets"
+      :currency-conversion-info="transferCurrencyInfo"
+      @close="closeForm"
+      @submit="handleSave"
+    />
 
     <!-- Delete Confirmation -->
     <ConfirmationDialog
@@ -318,30 +62,39 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
-import { Dialog, DialogPanel, DialogTitle, TransitionRoot, TransitionChild } from '@headlessui/vue';
-import {
-  PlusIcon,
-  MagnifyingGlassIcon,
-  BanknotesIcon,
-  ClockIcon,
-  EllipsisVerticalIcon,
-  PencilIcon,
-  TrashIcon
-} from '@heroicons/vue/24/outline';
+import { ref, computed, watch, onMounted, nextTick } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { PlusIcon } from '@heroicons/vue/24/outline';
 import { useTransactionsStore } from '../stores/transactions';
 import { useAccountsStore } from '../stores/accounts';
 import { useCategoriesStore } from '../stores/categories';
 import { useCurrencyStore } from '../stores/currency';
-import CategoryIcon from '../components/CategoryIcon.vue';
-import CategorySelect from '../components/CategorySelect.vue';
+import { useTransactionHelpers } from '../composables/useTransactionHelpers';
+import TransactionFilters from '../components/transactions/TransactionFilters.vue';
+import TransactionList from '../components/transactions/TransactionList.vue';
+import TransactionFormDialog from '../components/transactions/TransactionFormDialog.vue';
 import ConfirmationDialog from '../components/ConfirmationDialog.vue';
+
+// Router
+const route = useRoute();
+const router = useRouter();
 
 // Initialize stores
 const transactionsStore = useTransactionsStore();
 const accountsStore = useAccountsStore();
 const categoriesStore = useCategoriesStore();
 const currencyStore = useCurrencyStore();
+
+// Use helper composable
+const {
+  getTransactionTitle,
+  getTransactionIcon,
+  getTransactionBgClass,
+  getTypeBadgeClass,
+  getTransactionTextClass,
+  formatTime,
+  formatTransactionAmount
+} = useTransactionHelpers();
 
 // Search and filters
 const searchQuery = ref('');
@@ -384,9 +137,50 @@ const expenseCategories = computed(() =>
   categoriesStore.categories?.filter(c => c.type === 'expense') || []
 );
 
+const categoryOptions = computed(() => {
+  const categories = form.value.type === 'credit' ? incomeCategories.value : expenseCategories.value;
+  return categories.map(cat => ({ id: cat.id, name: cat.name, icon: cat.icon }));
+});
+
 const transferTargets = computed(() => 
   openAccounts.value.filter(acc => acc.id !== form.value.accountId)
 );
+
+// Currency conversion info for transfers
+const transferCurrencyInfo = computed(() => {
+  if (form.value.type !== 'transfer' || !form.value.accountId || !form.value.counterpartyAccountId || !form.value.amount) {
+    return null;
+  }
+  
+  const sourceAccount = accountsStore.accountById(form.value.accountId);
+  const destAccount = accountsStore.accountById(form.value.counterpartyAccountId);
+  
+  if (!sourceAccount || !destAccount) return null;
+  
+  const sourceCurrency = sourceAccount.currency;
+  const destCurrency = destAccount.currency;
+  
+  if (sourceCurrency === destCurrency) return null;
+  
+  const converted = currencyStore.convertAmount(form.value.amount, sourceCurrency, destCurrency, {
+    requestIfMissing: true
+  });
+  
+  if (converted === null) {
+    return {
+      warning: true,
+      message: `⚠️ Currency conversion rate not available. Transfer will use same amount for both accounts.`
+    };
+  }
+  
+  const sourceFormatted = currencyStore.formatCurrency(form.value.amount, sourceCurrency);
+  const destFormatted = currencyStore.formatCurrency(converted, destCurrency);
+  
+  return {
+    warning: false,
+    message: `${sourceFormatted} will be converted to ${destFormatted}`
+  };
+});
 
 // Filter transactions based on search and filters
 const filteredTransactions = computed(() => {
@@ -430,59 +224,24 @@ const filteredTransactions = computed(() => {
   return result.sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt));
 });
 
-// Transaction summaries with currency conversion
+// Transaction summaries with formatted data
 const transactionSummaries = computed(() => {
   return filteredTransactions.value.map(tx => {
+    const amountData = formatTransactionAmount(tx);
     const account = accountsStore.accountById(tx.accountId);
-    const amount = Number(tx.amount) || 0;
-    
-    // Determine sign based on transaction type
-    let sign = 1;
-    if (tx.type === 'debit' || (tx.type === 'transfer' && tx.direction === 'outgoing')) {
-      sign = -1;
-    }
-    
-    if (!account) {
-      return {
-        tx,
-        formattedAccount: `${(sign * amount).toFixed(2)} ???`,
-        formattedBase: null,
-        pending: false
-      };
-    }
-
-    const accountCurrency = account.currency || currencyStore.baseCurrency;
-    const formatted = currencyStore.formatCurrency(sign * amount, accountCurrency);
-    
-    if (accountCurrency === currencyStore.baseCurrency) {
-      return {
-        tx,
-        formattedAccount: formatted,
-        formattedBase: null,
-        pending: false
-      };
-    }
-
-    const converted = currencyStore.convertAmount(amount, accountCurrency, currencyStore.baseCurrency, {
-      requestIfMissing: true
-    });
-    
-    if (converted === null) {
-      return {
-        tx,
-        formattedAccount: formatted,
-        formattedBase: null,
-        pending: true
-      };
-    }
-
-    const formattedBase = currencyStore.formatCurrency(sign * converted, currencyStore.baseCurrency);
     
     return {
-      tx,
-      formattedAccount: formatted,
-      formattedBase,
-      pending: false
+      transaction: tx,
+      title: getTransactionTitle(tx),
+      icon: getTransactionIcon(tx),
+      accountName: account?.name ?? 'Unknown',
+      time: formatTime(tx.occurredAt),
+      formattedAmount: amountData.formatted,
+      formattedBase: amountData.formattedBase,
+      isPending: amountData.pending,
+      bgClass: getTransactionBgClass(tx),
+      badgeClass: getTypeBadgeClass(tx.type),
+      textClass: getTransactionTextClass(tx)
     };
   });
 });
@@ -500,14 +259,14 @@ const groupedTransactions = computed(() => {
   weekAgo.setDate(weekAgo.getDate() - 7);
 
   const groupMap = {
-    today: { dateLabel: 'Today', transactions: [], date: today.getTime() },
-    yesterday: { dateLabel: 'Yesterday', transactions: [], date: yesterday.getTime() },
-    thisWeek: { dateLabel: 'This Week', transactions: [], date: weekAgo.getTime() },
-    older: { dateLabel: 'Older', transactions: [], date: 0 }
+    today: { dateLabel: 'Today', transactions: [] },
+    yesterday: { dateLabel: 'Yesterday', transactions: [] },
+    thisWeek: { dateLabel: 'This Week', transactions: [] },
+    older: { dateLabel: 'Older', transactions: [] }
   };
 
   transactionSummaries.value.forEach(item => {
-    const txDate = new Date(item.tx.occurredAt);
+    const txDate = new Date(item.transaction.occurredAt);
     txDate.setHours(0, 0, 0, 0);
     const txTime = txDate.getTime();
 
@@ -531,22 +290,56 @@ const groupedTransactions = computed(() => {
   return groups;
 });
 
+const emptyStateMessage = computed(() => {
+  if (searchQuery.value || filters.value.accountId || filters.value.categoryId || filters.value.type) {
+    return 'Try adjusting your filters or search term';
+  }
+  return 'Start by adding your first transaction';
+});
+
 const deletePrompt = computed(() => {
   if (!transactionToDelete.value) return '';
   const tx = transactionToDelete.value;
-  const title = renderTransactionTitle(tx);
+  const title = getTransactionTitle(tx);
   const account = accountsStore.accountById(tx.accountId);
-  const formatted = account ? accountsStore.formatCurrency(tx.amount, account.currency) : tx.amount;
+  // FIX: Use currencyStore.formatCurrency instead of accountsStore.formatCurrency
+  const formatted = account 
+    ? currencyStore.formatCurrency(tx.amount, account.currency) 
+    : tx.amount.toFixed(2);
   return `Are you sure you want to delete "${title}" (${formatted})?`;
 });
 
-// Watchers
-watch(() => form.value.type, (newType) => {
+// Flag to prevent watchers from firing during form initialization
+const isInitializingForm = ref(false);
+
+// Watchers - only clear fields when user changes type manually (not during form init)
+watch(() => form.value.type, (newType, oldType) => {
+  // Skip if we're initializing the form
+  if (isInitializingForm.value) {
+    return;
+  }
+  
+  // Skip if there's no old value (shouldn't happen after init flag, but safety check)
+  if (oldType === undefined) {
+    return;
+  }
+  
+  // Only clear when type actually changes
   form.value.categoryId = '';
   form.value.counterpartyAccountId = '';
 });
 
-watch(() => form.value.accountId, () => {
+watch(() => form.value.accountId, (newAccountId, oldAccountId) => {
+  // Skip if we're initializing the form
+  if (isInitializingForm.value) {
+    return;
+  }
+  
+  // Skip if no old value
+  if (oldAccountId === undefined) {
+    return;
+  }
+  
   if (form.value.type === 'transfer') {
     form.value.counterpartyAccountId = '';
   }
@@ -554,6 +347,9 @@ watch(() => form.value.accountId, () => {
 
 // Form functions
 function openTransactionForm(transaction = null) {
+  // Set flag to prevent watchers from clearing fields during initialization
+  isInitializingForm.value = true;
+  
   if (transaction) {
     // Edit mode
     editingTransaction.value = transaction;
@@ -579,7 +375,13 @@ function openTransactionForm(transaction = null) {
       note: ''
     };
   }
+  
   openForm.value = true;
+  
+  // Re-enable watchers after Vue's next tick (after reactivity has settled)
+  nextTick(() => {
+    isInitializingForm.value = false;
+  });
 }
 
 function closeForm() {
@@ -592,10 +394,44 @@ async function handleSave() {
   isSaving.value = true;
   
   try {
+    // Validation
+    if (!form.value.accountId) {
+      alert('Please select an account');
+      isSaving.value = false;
+      return;
+    }
+
+    const amount = Number(form.value.amount);
+    if (!amount || amount <= 0) {
+      alert('Please enter a valid amount greater than zero');
+      isSaving.value = false;
+      return;
+    }
+
+    if (form.value.type === 'transfer') {
+      if (!form.value.counterpartyAccountId) {
+        alert('Please select a destination account for the transfer');
+        isSaving.value = false;
+        return;
+      }
+      if (form.value.counterpartyAccountId === form.value.accountId) {
+        alert('Cannot transfer to the same account');
+        isSaving.value = false;
+        return;
+      }
+    } else {
+      // Credit or Debit requires category
+      if (!form.value.categoryId) {
+        alert('Please select a category');
+        isSaving.value = false;
+        return;
+      }
+    }
+
     const transactionData = {
       type: form.value.type,
       accountId: form.value.accountId,
-      amount: form.value.amount,
+      amount: amount,
       occurredAt: new Date(form.value.date).toISOString(),
       note: form.value.note
     };
@@ -617,7 +453,7 @@ async function handleSave() {
     closeForm();
   } catch (error) {
     console.error('Failed to save transaction:', error);
-    alert('Failed to save transaction. Please try again.');
+    alert(error.message || 'Failed to save transaction. Please try again.');
   } finally {
     isSaving.value = false;
   }
@@ -641,59 +477,20 @@ async function confirmDelete() {
   }
 }
 
-// Helper functions
-function renderTransactionTitle(tx) {
-  if (tx.type === 'transfer') {
-    const counterparty = accountsStore.accountById(tx.counterpartyAccountId);
-    return `Transfer to ${counterparty?.name ?? 'Unknown'}`;
+// Handle PWA shortcuts on mount
+onMounted(() => {
+  const quickAction = route.query.quick;
+  if (quickAction && openAccounts.value.length > 0) {
+    console.log('[PWA Shortcut] Detected quick action:', quickAction);
+    
+    // Set the transaction type based on shortcut
+    if (['debit', 'credit', 'transfer'].includes(quickAction)) {
+      form.value.type = quickAction;
+      openTransactionForm();
+      
+      // Clean URL after opening form
+      router.replace({ query: {} });
+    }
   }
-  
-  const category = categoriesStore.categories?.find(c => c.id === tx.categoryId);
-  return category?.name ?? 'Uncategorized';
-}
-
-function transactionIcon(tx) {
-  if (tx.type === 'transfer') {
-    return 'arrows-right-left';
-  }
-  const category = categoriesStore.categories?.find(c => c.id === tx.categoryId);
-  return category?.icon ?? 'question-mark-circle';
-}
-
-function getTransactionBgClass(tx) {
-  if (tx.type === 'credit') return 'bg-success/10 text-success';
-  if (tx.type === 'debit') return 'bg-error/10 text-error';
-  return 'bg-info/10 text-info';
-}
-
-function getTypeBadgeClass(type) {
-  if (type === 'credit') return 'badge-success';
-  if (type === 'debit') return 'badge-error';
-  return 'badge-info';
-}
-
-function txClass(tx) {
-  if (tx.type === 'credit') return 'text-success';
-  if (tx.type === 'debit') return 'text-error';
-  return 'text-info';
-}
-
-function formatTime(dateString) {
-  const date = new Date(dateString);
-  return date.toLocaleTimeString('en-US', { 
-    hour: 'numeric', 
-    minute: '2-digit',
-    hour12: true 
-  });
-}
+});
 </script>
-
-<style scoped>
-.line-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-</style>

@@ -1,18 +1,107 @@
-rules_version='2'
+rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    
+    // Helper functions for validation and security
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function isValidString(value, minLen, maxLen) {
+      return value is string 
+        && value.size() >= minLen 
+        && value.size() <= maxLen;
+    }
+    
+    function isValidNumber(value) {
+      return value is number && value >= 0;
+    }
+    
+    function isValidTimestamp(value) {
+      return value is timestamp;
+    }
+    
+    function isValidBackupData(data) {
+      return data.keys().hasAll(['accounts', 'categories', 'transactions'])
+        && data.accounts is list
+        && data.categories is list
+        && data.transactions is list;
+    }
+    
+    // User backups collection - stores encrypted backup data
+    // Path: /backups/{userId}
+    match /backups/{userId} {
+      // Only authenticated users can access their own backup
+      allow read: if isOwner(userId);
+      
+      // Users can create/update their own backup
+      allow create, update: if isOwner(userId)
+        && isValidBackupData(request.resource.data)
+        && request.resource.data.size() < 5000000; // Max 5MB per backup
+      
+      // Users can delete their own backup
+      allow delete: if isOwner(userId);
+    }
+    
+    // User preferences/settings (optional, for future use)
+    // Path: /users/{userId}
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      
+      allow create, update: if isOwner(userId)
+        && request.resource.data.keys().hasAll(['createdAt', 'updatedAt'])
+        && isValidTimestamp(request.resource.data.createdAt)
+        && isValidTimestamp(request.resource.data.updatedAt);
+      
+      allow delete: if isOwner(userId);
+    }
+    
+    // Currency exchange rates (public read, admin write only)
+    // Path: /currency_rates/{rateId}
+    match /currency_rates/{rateId} {
+      // Anyone can read exchange rates (for currency conversion)
+      allow read: if true;
+      
+      // Only allow writes from authenticated users (for now)
+      // In production, you might want to restrict this to admin users only
+      // or use Cloud Functions to update rates from an external API
+      allow write: if false; // Disable direct writes, use Cloud Functions
+    }
+    
+    // App metadata (version info, announcements, etc.)
+    // Path: /metadata/{docId}
+    match /metadata/{docId} {
+      // Anyone can read metadata
+      allow read: if true;
+      
+      // No one can write (use Cloud Functions or Firebase Console)
+      allow write: if false;
+    }
+    
+    // Analytics events (optional, for future use)
+    // Path: /analytics/{userId}/events/{eventId}
+    match /analytics/{userId}/events/{eventId} {
+      // Users can write their own analytics events
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasAll(['timestamp', 'event'])
+        && isValidTimestamp(request.resource.data.timestamp)
+        && isValidString(request.resource.data.event, 1, 100);
+      
+      // No one can read analytics (use Cloud Functions for processing)
+      allow read: if false;
+      
+      // No updates or deletes
+      allow update, delete: if false;
+    }
+    
+    // Deny access to all other paths
     match /{document=**} {
-      // This rule allows anyone with your database reference to view, edit,
-      // and delete all data in your database. It is useful for getting
-      // started, but it is configured to expire after 30 days because it
-      // leaves your app open to attackers. At that time, all client
-      // requests to your database will be denied.
-      //
-      // Make sure to write security rules for your app before that time, or
-      // else all client requests to your database will be denied until you
-      // update your rules.
-      allow read, write: if request.time < timestamp.date(2025, 11, 8);
+      allow read, write: if false;
     }
   }
 }

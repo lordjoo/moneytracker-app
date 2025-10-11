@@ -18,10 +18,16 @@ export const useAuthStore = defineStore('auth', {
     async init() {
       if (this.initialized) return;
 
+      console.log('[AuthStore] Initializing auth store...');
       this.status = 'loading';
 
       await new Promise((resolve) => {
         this._unsubscribe = onAuthStateChanged(auth, (user) => {
+          console.log('[AuthStore] Auth state changed:', {
+            uid: user?.uid,
+            email: user?.email,
+            isAuthenticated: !!user
+          });
           this.user = user;
           this.status = 'ready';
           this.initialized = true;
@@ -30,9 +36,14 @@ export const useAuthStore = defineStore('auth', {
       });
     },
     async signIn() {
+      console.log('[AuthStore] Sign-in requested');
       this.status = 'authenticating';
       try {
         await signInWithGoogle();
+        console.log('[AuthStore] Sign-in completed');
+      } catch (error) {
+        console.error('[AuthStore] Sign-in error:', error);
+        throw error;
       } finally {
         this.status = 'ready';
       }

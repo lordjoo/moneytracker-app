@@ -1,0 +1,21 @@
+/* TEAM */
+Developer: Youssef Afify
+Site: https://www.linkedin.com/in/yafify/
+Location: Worldwide
+
+/* THANKS */
+Vue.js - https://vuejs.org/
+Vite - https://vitejs.dev/
+Firebase - https://firebase.google.com/
+Tailwind CSS - https://tailwindcss.com/
+DaisyUI - https://daisyui.com/
+Heroicons - https://heroicons.com/
+
+/* SITE */
+Last update: 2025/10/11
+Standards: HTML5, CSS3, JavaScript ES6+
+Components: Vue 3, Pinia, Vue Router
+Software: VS Code, Git
+Language: English
+Doctype: HTML5
+IDE: Visual Studio Code

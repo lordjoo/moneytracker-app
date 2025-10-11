@@ -135,12 +135,33 @@ function handleAvatarError(event) {
 }
 
 async function signIn() {
+  console.log('[BackupSettings] Sign-in button clicked');
   try {
+    setStatus('info', 'Initiating sign-in...');
     await authStore.signIn();
+    console.log('[BackupSettings] Sign-in successful');
     fallbackAvatar.value = makeFallbackAvatar(authStore.displayName);
+    setStatus('success', 'Successfully signed in with Google!');
   } catch (error) {
-    console.error(error);
-    setStatus('error', error.message ?? 'Failed to sign in');
+    console.error('[BackupSettings] Sign-in error:', error);
+    
+    // Provide user-friendly error messages
+    let errorMessage = 'Failed to sign in';
+    if (error.code === 'auth/popup-blocked') {
+      errorMessage = 'Popup was blocked. Please allow popups for this site and try again.';
+    } else if (error.code === 'auth/popup-closed-by-user') {
+      errorMessage = 'Sign-in cancelled. Please try again when ready.';
+    } else if (error.code === 'auth/unauthorized-domain') {
+      errorMessage = 'This domain is not authorized for Google sign-in. Please check Firebase console settings.';
+    } else if (error.code === 'auth/operation-not-allowed') {
+      errorMessage = 'Google sign-in is not enabled. Please check Firebase console settings.';
+    } else if (error.code === 'auth/network-request-failed') {
+      errorMessage = 'Network error. Please check your internet connection and try again.';
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    
+    setStatus('error', `${errorMessage} (Code: ${error.code || 'unknown'})`);
   }
 }
 

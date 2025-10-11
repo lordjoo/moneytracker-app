@@ -1,0 +1,8 @@
+Contact: mailto:security@moneysaaver.web.app
+Expires: 2026-12-31T23:59:59.000Z
+Preferred-Languages: en
+Canonical: https://moneysaaver.web.app/.well-known/security.txt
+
+# Responsible Disclosure
+# If you discover a security vulnerability, please report it to us.
+# We appreciate your help in keeping MyMoney secure.

@@ -1,0 +1,62 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function isValidImageType() {
+      return request.resource.contentType.matches('image/.*');
+    }
+    
+    function isValidSize(maxSizeInMB) {
+      return request.resource.size < maxSizeInMB * 1024 * 1024;
+    }
+    
+    // User profile images
+    // Path: /users/{userId}/profile.{ext}
+    match /users/{userId}/profile.{ext} {
+      // Only owner can read their profile image
+      allow read: if isOwner(userId);
+      
+      // Only owner can upload/update their profile image
+      // Max 2MB, images only
+      allow write: if isOwner(userId)
+        && isValidImageType()
+        && isValidSize(2);
+    }
+    
+    // User backup exports (optional, for future use)
+    // Path: /users/{userId}/backups/{filename}
+    match /users/{userId}/backups/{filename} {
+      // Only owner can read/write their backups
+      allow read, write: if isOwner(userId)
+        && isValidSize(10); // Max 10MB per backup file
+    }
+    
+    // User receipts/attachments (optional, for future use)
+    // Path: /users/{userId}/receipts/{receiptId}.{ext}
+    match /users/{userId}/receipts/{receiptId}.{ext} {
+      // Only owner can read their receipts
+      allow read: if isOwner(userId);
+      
+      // Only owner can upload receipts
+      // Max 5MB, images only
+      allow write: if isOwner(userId)
+        && isValidImageType()
+        && isValidSize(5);
+    }
+    
+    // Deny all other paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

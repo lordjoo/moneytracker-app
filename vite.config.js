@@ -7,7 +7,26 @@ export default defineConfig({
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'favicon.ico', 'robots.txt', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.svg', 'robots.txt', 'icons/*.png'],
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,json,vue,txt,woff2}'],
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'google-fonts-cache',
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 60 * 24 * 365 // 1 year
+              },
+              cacheableResponse: {
+                statuses: [0, 200]
+              }
+            }
+          }
+        ]
+      },
       manifest: {
         name: 'MyMoney Tracker',
         short_name: 'MyMoney',
@@ -16,28 +35,46 @@ export default defineConfig({
         background_color: '#f8fafc',
         display: 'standalone',
         orientation: 'portrait',
+        scope: '/',
         start_url: '/',
+        id: '/',
+        categories: ['finance', 'productivity'],
         icons: [
           {
-            src: 'icons/pwa-64x64.png',
+            src: '/icons/pwa-64x64.png',
             sizes: '64x64',
             type: 'image/png'
           },
           {
-            src: 'icons/pwa-192x192.png',
+            src: '/icons/pwa-192x192.png',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any'
           },
           {
-            src: 'icons/pwa-512x512.png',
+            src: '/icons/pwa-512x512.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any'
           },
           {
-            src: 'icons/pwa-maskable-512x512.png',
+            src: '/icons/pwa-maskable-512x512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable'
+          },
+          {
+            src: '/icons/apple-touch-icon.png',
+            sizes: '180x180',
+            type: 'image/png'
+          }
+        ],
+        screenshots: [
+          {
+            src: '/icons/pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            form_factor: 'narrow'
           }
         ],
         shortcuts: [
@@ -48,7 +85,7 @@ export default defineConfig({
             url: '/transactions?quick=debit',
             icons: [
               {
-                src: 'icons/pwa-192x192.png',
+                src: '/icons/pwa-192x192.png',
                 sizes: '192x192',
                 type: 'image/png'
               }
@@ -61,7 +98,7 @@ export default defineConfig({
             url: '/transactions?quick=credit',
             icons: [
               {
-                src: 'icons/pwa-192x192.png',
+                src: '/icons/pwa-192x192.png',
                 sizes: '192x192',
                 type: 'image/png'
               }
@@ -74,7 +111,7 @@ export default defineConfig({
             url: '/transactions?quick=transfer',
             icons: [
               {
-                src: 'icons/pwa-192x192.png',
+                src: '/icons/pwa-192x192.png',
                 sizes: '192x192',
                 type: 'image/png'
               }
@@ -83,7 +120,8 @@ export default defineConfig({
         ]
       },
       devOptions: {
-        enabled: true
+        enabled: true,
+        type: 'module'
       }
     })
   ],

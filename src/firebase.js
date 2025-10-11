@@ -4,6 +4,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signInWithRedirect,
+  getRedirectResult,
   signOut
 } from 'firebase/auth';
 import {
@@ -81,18 +82,71 @@ provider.setCustomParameters({
   prompt: 'select_account'
 });
 
+// Check for redirect result on app load
+if (typeof window !== 'undefined') {
+  getRedirectResult(auth)
+    .then((result) => {
+      if (result) {
+        console.log('[Auth] Redirect sign-in completed:', {
+          uid: result.user?.uid,
+          email: result.user?.email,
+          displayName: result.user?.displayName
+        });
+      } else {
+        console.log('[Auth] No redirect result found (normal for popup flow or first load)');
+      }
+    })
+    .catch((error) => {
+      console.error('[Auth] Redirect sign-in error:', {
+        code: error.code,
+        message: error.message,
+        details: error
+      });
+    });
+}
+
 export { app, auth, db };
 export function getPersistenceStatus() {
   return persistenceStatus;
 }
 
 export async function signInWithGoogle() {
-  if (window.matchMedia('(display-mode: standalone)').matches || window.innerWidth < 768) {
-    await signInWithRedirect(auth, provider);
-    return;
-  }
+  console.log('[Auth] Starting Google sign-in...');
+  console.log('[Auth] Environment check:', {
+    apiKey: firebaseConfig.apiKey ? '✓ Present' : '✗ Missing',
+    authDomain: firebaseConfig.authDomain || '✗ Missing',
+    projectId: firebaseConfig.projectId || '✗ Missing',
+    standalone: window.matchMedia('(display-mode: standalone)').matches,
+    windowWidth: window.innerWidth,
+    userAgent: navigator.userAgent
+  });
 
-  await signInWithPopup(auth, provider);
+  const useRedirect = window.matchMedia('(display-mode: standalone)').matches || window.innerWidth < 768;
+  console.log(`[Auth] Using ${useRedirect ? 'redirect' : 'popup'} flow`);
+
+  try {
+    if (useRedirect) {
+      console.log('[Auth] Initiating redirect sign-in...');
+      await signInWithRedirect(auth, provider);
+      console.log('[Auth] Redirect initiated (user will be redirected)');
+      return;
+    }
+
+    console.log('[Auth] Initiating popup sign-in...');
+    const result = await signInWithPopup(auth, provider);
+    console.log('[Auth] Popup sign-in successful:', {
+      uid: result.user?.uid,
+      email: result.user?.email,
+      displayName: result.user?.displayName
+    });
+  } catch (error) {
+    console.error('[Auth] Sign-in failed:', {
+      code: error.code,
+      message: error.message,
+      details: error
+    });
+    throw error;
+  }
 }
 
 export async function signOutUser() {
