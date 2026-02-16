@@ -5,8 +5,12 @@
         <h1 class="text-2xl font-semibold">Accounts</h1>
         <p class="text-sm opacity-70">Create multiple accounts and assign a billing cycle day for better monthly tracking.</p>
       </div>
-      <button class="btn btn-primary" @click="openCreate = true">Add Account</button>
+      <button class="btn btn-primary" :disabled="!canEditFinancialData" @click="openCreate = true">Add Account</button>
     </header>
+
+    <div v-if="!canEditFinancialData" class="alert alert-info text-sm">
+      <span>Your role is read-only. Account edits are disabled.</span>
+    </div>
 
     <section class="grid gap-4 md:grid-cols-2" v-if="openAccounts.length">
       <article
@@ -19,6 +23,7 @@
             <div>
               <div class="flex items-center gap-2">
                 <h2 class="card-title">{{ account.name }}</h2>
+                <span v-if="account.excludeFromHousehold" class="badge badge-warning badge-sm">Private</span>
               </div>
               <p class="text-xs opacity-70">Cycle day: {{ account.cycleDay ?? 'Not set' }}</p>
               <p class="text-xs opacity-70">
@@ -45,8 +50,8 @@
             </div>
           </div>
           <div class="card-actions justify-end gap-2">
-            <button class="btn btn-ghost btn-sm" @click="startEdit(account)">Edit</button>
-            <button class="btn btn-outline btn-sm" @click="requestClose(account)">Close</button>
+            <button class="btn btn-ghost btn-sm" :disabled="!canEditFinancialData" @click="startEdit(account)">Edit</button>
+            <button class="btn btn-outline btn-sm" :disabled="!canEditFinancialData" @click="requestClose(account)">Close</button>
             <RouterLink class="btn btn-ghost btn-sm" :to="`/accounts/${account.id}`">View details</RouterLink>
           </div>
         </div>
@@ -69,6 +74,7 @@
               <div class="flex items-center gap-2">
                 <h2 class="card-title text-base">{{ account.name }}</h2>
                 <span class="badge badge-outline badge-sm">Closed</span>
+                <span v-if="account.excludeFromHousehold" class="badge badge-warning badge-sm">Private</span>
               </div>
               <div class="text-right">
               <p class="text-sm opacity-70">Final balance</p>
@@ -167,6 +173,13 @@
                       </span>
                     </span>
                   </label>
+                  <label v-if="hasActiveHousehold" class="label cursor-pointer justify-start gap-3 rounded-lg border border-base-300 p-3">
+                    <input v-model="form.excludeFromHousehold" type="checkbox" class="checkbox checkbox-sm" />
+                    <div>
+                      <p class="text-sm font-medium">Exclude from household sharing</p>
+                      <p class="text-xs opacity-65">This account stays visible only to you in household mode.</p>
+                    </div>
+                  </label>
                   <div class="flex justify-end gap-2 pt-2">
                     <button type="button" class="btn btn-ghost" @click="openCreate = false">Cancel</button>
                     <button type="submit" class="btn btn-primary" :class="{ loading: isSubmitting }">Create</button>
@@ -242,6 +255,13 @@
                       </span>
                     </span>
                   </label>
+                  <label v-if="hasActiveHousehold" class="label cursor-pointer justify-start gap-3 rounded-lg border border-base-300 p-3">
+                    <input v-model="editForm.excludeFromHousehold" type="checkbox" class="checkbox checkbox-sm" />
+                    <div>
+                      <p class="text-sm font-medium">Exclude from household sharing</p>
+                      <p class="text-xs opacity-65">Private accounts remain hidden from other household members.</p>
+                    </div>
+                  </label>
                   <div class="flex justify-end gap-2 pt-2">
                     <button type="button" class="btn btn-ghost" @click="openEdit = false">Cancel</button>
                     <button type="submit" class="btn btn-primary" :class="{ loading: isUpdating }">Save changes</button>
@@ -271,13 +291,18 @@ import { RouterLink } from 'vue-router';
 import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } from '@headlessui/vue';
 import { useAccountsStore } from '@/stores/accounts';
 import { useCurrencyStore } from '@/stores/currency';
+import { useHouseholdStore } from '@/stores/household';
 import currencyList from '@/utils/currencies';
 import ConfirmationDialog from '@/components/ConfirmationDialog.vue';
 
 const accountsStore = useAccountsStore();
 const currencyStore = useCurrencyStore();
+const householdStore = useHouseholdStore();
 if (!accountsStore.initialized) {
   accountsStore.init();
+}
+if (!householdStore.initialized) {
+  householdStore.init();
 }
 const openCreate = ref(false);
 const openEdit = ref(false);
@@ -290,18 +315,21 @@ const form = reactive({
   name: '',
   openingBalance: 0,
   cycleDay: null,
-  currency: currencyStore.mainCurrency.value
+  currency: currencyStore.mainCurrency,
+  excludeFromHousehold: false
 });
 
 const editForm = reactive({
   id: '',
   name: '',
   cycleDay: null,
-  currency: currencyStore.mainCurrency.value
+  currency: currencyStore.mainCurrency,
+  excludeFromHousehold: false
 });
 
-const openAccounts = computed(() => accountsStore.openAccounts);
-const closedAccounts = computed(() => accountsStore.closedAccounts);
+const openAccounts = computed(() => accountsStore.visibleOpenAccounts);
+const closedAccounts = computed(() => accountsStore.visibleClosedAccounts);
+const hasActiveHousehold = computed(() => Boolean(householdStore.household));
 const closePrompt = computed(() =>
   accountToClose.value
     ? `Close ${accountToClose.value.name}? You will keep its history but no new transactions can be added.`
@@ -310,6 +338,7 @@ const closePrompt = computed(() =>
 
 const currencyOptions = currencyList;
 const hasCurrencyToken = computed(() => currencyStore.hasToken);
+const canEditFinancialData = computed(() => householdStore.canEditFinancialData);
 const convertedBalances = currencyStore.convertedAccountBalances;
 
 watch(
@@ -334,7 +363,7 @@ watch(
   hasCurrencyToken,
   (enabled) => {
     if (enabled) return;
-    const fallback = currencyStore.mainCurrency.value;
+    const fallback = currencyStore.mainCurrency;
     form.currency = fallback;
     if (!openEdit.value) {
       editForm.currency = fallback;
@@ -344,15 +373,19 @@ watch(
 );
 
 function accountCurrencyInBase(accountId) {
-  return convertedBalances.value?.get?.(accountId) ?? null;
+  return convertedBalances?.get?.(accountId) ?? null;
 }
 
 function startEdit(account) {
+  if (!canEditFinancialData.value) {
+    return;
+  }
   Object.assign(editForm, {
     id: account.id,
     name: account.name,
     cycleDay: account.cycleDay,
-    currency: account.currency
+    currency: account.currency,
+    excludeFromHousehold: Boolean(account.excludeFromHousehold)
   });
   openEdit.value = true;
 }
@@ -363,7 +396,8 @@ async function handleEdit() {
     await accountsStore.updateAccount(editForm.id, {
       name: editForm.name,
       cycleDay: editForm.cycleDay || null,
-      currency: editForm.currency
+      currency: editForm.currency,
+      excludeFromHousehold: Boolean(editForm.excludeFromHousehold)
     });
     openEdit.value = false;
   } catch (error) {
@@ -384,6 +418,9 @@ async function handleClose(account) {
 }
 
 function requestClose(account) {
+  if (!canEditFinancialData.value) {
+    return;
+  }
   accountToClose.value = account;
   openCloseDialog.value = true;
 }
@@ -409,7 +446,8 @@ async function handleCreate() {
       name: '',
       openingBalance: 0,
       cycleDay: null,
-      currency: currencyStore.mainCurrency.value
+      currency: currencyStore.mainCurrency,
+      excludeFromHousehold: false
     });
   } catch (error) {
     console.error(error);

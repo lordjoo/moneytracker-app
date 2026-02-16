@@ -4,9 +4,18 @@ const memoryFallback = new Map();
 
 function clone(value) {
   if (typeof structuredClone === 'function') {
-    return structuredClone(value);
+    try {
+      return structuredClone(value);
+    } catch (error) {
+      console.warn('structuredClone failed, falling back to JSON clone.', error);
+    }
   }
-  return JSON.parse(JSON.stringify(value));
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (error) {
+    console.warn('JSON clone fallback failed, returning original value.', error);
+    return value;
+  }
 }
 
 function getStorage() {

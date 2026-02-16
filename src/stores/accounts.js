@@ -1,7 +1,9 @@
 import { defineStore } from 'pinia';
 import { generateId, parseDate, readJson, writeJson } from '@/utils/storage';
+import { notifyBackupDirty } from '@/utils/backupDirtySignal';
 import { useTransactionsStore } from './transactions';
 import { usePreferencesStore } from './preferences';
+import { useHouseholdStore } from './household';
 
 const STORAGE_KEY = 'accounts';
 const FALLBACK_CURRENCY = 'USD';
@@ -9,6 +11,8 @@ const FALLBACK_CURRENCY = 'USD';
 function deserialiseAccount(record, defaultCurrency = FALLBACK_CURRENCY) {
   return {
     ...record,
+    excludeFromHousehold: Boolean(record.excludeFromHousehold),
+    ownerUid: String(record.ownerUid ?? ''),
     createdAt: parseDate(record.createdAt),
     updatedAt: parseDate(record.updatedAt),
     closedAt: parseDate(record.closedAt),
@@ -19,6 +23,8 @@ function deserialiseAccount(record, defaultCurrency = FALLBACK_CURRENCY) {
 function serialiseAccount(account) {
   return {
     ...account,
+    excludeFromHousehold: Boolean(account.excludeFromHousehold),
+    ownerUid: String(account.ownerUid ?? ''),
     createdAt: account.createdAt ? account.createdAt.toISOString() : null,
     updatedAt: account.updatedAt ? account.updatedAt.toISOString() : null,
     closedAt: account.closedAt ? account.closedAt.toISOString() : null,
@@ -39,6 +45,33 @@ export const useAccountsStore = defineStore('accounts', {
     initialized: false
   }),
   getters: {
+    visibleAccounts: (state) => {
+      const householdStore = useHouseholdStore();
+      const hasHousehold = Boolean(householdStore.household);
+      const currentActor = householdStore.actor();
+      return state.accounts.filter((account) => {
+        if (!hasHousehold || !account.excludeFromHousehold) return true;
+        if (!account.ownerUid) return true;
+        return account.ownerUid === currentActor.uid;
+      });
+    },
+    visibleSortedAccounts() {
+      return [...this.visibleAccounts].sort((a, b) => {
+        const closedDiff = Number(a.isClosed ?? false) - Number(b.isClosed ?? false);
+        if (closedDiff !== 0) return closedDiff;
+        return a.name.localeCompare(b.name);
+      });
+    },
+    visibleOpenAccounts() {
+      return this.visibleAccounts
+        .filter((account) => !account.isClosed)
+        .sort((a, b) => a.name.localeCompare(b.name));
+    },
+    visibleClosedAccounts() {
+      return this.visibleAccounts
+        .filter((account) => account.isClosed)
+        .sort((a, b) => a.name.localeCompare(b.name));
+    },
     sortedAccounts: (state) =>
       [...state.accounts].sort((a, b) => {
         const closedDiff = Number(a.isClosed ?? false) - Number(b.isClosed ?? false);
@@ -54,7 +87,13 @@ export const useAccountsStore = defineStore('accounts', {
         .filter((account) => account.isClosed)
         .sort((a, b) => a.name.localeCompare(b.name)),
     totalWorth: (state) => state.accounts.reduce((sum, account) => sum + ensureNumber(account.balance), 0),
-    accountById: (state) => (id) => state.accounts.find((account) => account.id === id) ?? null
+    accountById: (state) => (id) => state.accounts.find((account) => account.id === id) ?? null,
+    visibleAccountById() {
+      return (id) => this.visibleAccounts.find((account) => account.id === id) ?? null;
+    },
+    isAccountVisible() {
+      return (id) => Boolean(this.visibleAccountById(id));
+    }
   },
   actions: {
     init() {
@@ -74,21 +113,27 @@ export const useAccountsStore = defineStore('accounts', {
       this.initialized = true;
     },
     determineActiveAccountId() {
-      if (this.activeAccountId && this.accountById(this.activeAccountId)) {
+      if (this.activeAccountId && this.visibleAccountById(this.activeAccountId)) {
         return this.activeAccountId;
       }
-      const firstOpen = this.openAccounts[0];
+      const firstOpen = this.visibleOpenAccounts[0];
       if (firstOpen) return firstOpen.id;
-      return this.accounts[0]?.id ?? null;
+      return this.visibleAccounts[0]?.id ?? null;
     },
     persist() {
       writeJson(STORAGE_KEY, this.accounts.map(serialiseAccount));
+      notifyBackupDirty('accounts');
     },
     setActiveAccount(id) {
       this.activeAccountId = id;
       this.persist();
     },
-    createAccount({ name, openingBalance = 0, cycleDay = null, currency } = {}) {
+    createAccount({ name, openingBalance = 0, cycleDay = null, currency, excludeFromHousehold = false } = {}) {
+      const householdStore = useHouseholdStore();
+      if (!householdStore.initialized) {
+        householdStore.init();
+      }
+      householdStore.ensureCanEditFinancialData('create accounts');
       const trimmed = String(name ?? '').trim();
       if (!trimmed) {
         throw new Error('Account name is required');
@@ -107,6 +152,8 @@ export const useAccountsStore = defineStore('accounts', {
         balance: 0,
         cycleDay: cycleDay ? Number(cycleDay) : null,
         isClosed: false,
+        excludeFromHousehold: Boolean(excludeFromHousehold),
+        ownerUid: householdStore.actor().uid,
         closedAt: null,
         currency: selectedCurrency,
         createdAt: now,
@@ -124,9 +171,17 @@ export const useAccountsStore = defineStore('accounts', {
           occurredAt: now
         });
       }
+      householdStore.logEvent('account.created', `Created account "${trimmed}"`, {
+        accountId: id
+      });
       return id;
     },
     updateAccount(id, updates) {
+      const householdStore = useHouseholdStore();
+      if (!householdStore.initialized) {
+        householdStore.init();
+      }
+      householdStore.ensureCanEditFinancialData('edit accounts');
       const account = this.accountById(id);
       if (!account) {
         throw new Error('Account not found');
@@ -141,13 +196,24 @@ export const useAccountsStore = defineStore('accounts', {
       if (Object.prototype.hasOwnProperty.call(payload, 'cycleDay')) {
         payload.cycleDay = payload.cycleDay ? Number(payload.cycleDay) : null;
       }
+      if (Object.prototype.hasOwnProperty.call(payload, 'excludeFromHousehold')) {
+        payload.excludeFromHousehold = Boolean(payload.excludeFromHousehold);
+      }
       if (payload.currency) {
         payload.currency = String(payload.currency).toUpperCase();
       }
       Object.assign(account, payload, { updatedAt: new Date() });
       this.persist();
+      householdStore.logEvent('account.updated', `Updated account "${account.name}"`, {
+        accountId: id
+      });
     },
     closeAccount(id) {
+      const householdStore = useHouseholdStore();
+      if (!householdStore.initialized) {
+        householdStore.init();
+      }
+      householdStore.ensureCanEditFinancialData('close accounts');
       const account = this.accountById(id);
       if (!account) {
         throw new Error('Account not found');
@@ -157,10 +223,13 @@ export const useAccountsStore = defineStore('accounts', {
       account.closedAt = new Date();
       account.updatedAt = new Date();
       if (this.activeAccountId === id) {
-        const fallback = this.openAccounts.find((candidate) => candidate.id !== id);
+        const fallback = this.visibleOpenAccounts.find((candidate) => candidate.id !== id);
         this.activeAccountId = fallback?.id ?? null;
       }
       this.persist();
+      householdStore.logEvent('account.closed', `Closed account "${account.name}"`, {
+        accountId: id
+      });
     },
     applyBalanceDelta(id, delta) {
       const account = this.accountById(id);

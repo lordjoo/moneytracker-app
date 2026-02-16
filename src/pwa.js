@@ -3,19 +3,18 @@ export function registerSW() {
     const updateSW = registerSW({
       immediate: true,
       onNeedRefresh() {
-        console.log('[PWA] New content available. Prompting user to update...');
-        if (confirm('New content available. Reload?')) {
-          updateSW(true);
-        }
+        console.log('[PWA] New content available. Applying update...');
+        updateSW(true);
       },
       onOfflineReady() {
         console.info('[PWA] MyMoney app is ready to work offline.');
       },
       onRegistered(registration) {
         console.log('[PWA] Service Worker registered successfully');
-        
+
         // Check for updates periodically (every hour)
         if (registration) {
+          registration.update();
           setInterval(() => {
             registration.update();
           }, 60 * 60 * 1000);
@@ -30,25 +29,43 @@ export function registerSW() {
   });
 }
 
-// Log PWA installation status
+function emitInstallAvailability(promptEvent = null) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent('pwa-install-available', {
+      detail: {
+        prompt: promptEvent,
+        isStandalone:
+          window.matchMedia('(display-mode: standalone)').matches ||
+          Boolean(window.navigator.standalone)
+      }
+    })
+  );
+}
+
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
     console.log('[PWA] Install prompt available');
-    // Store the event for later use
     window.deferredPrompt = e;
+    emitInstallAvailability(e);
   });
 
   window.addEventListener('appinstalled', () => {
     console.log('[PWA] App installed successfully');
+    window.deferredPrompt = null;
+    window.dispatchEvent(new CustomEvent('pwa-installed'));
   });
 
-  // Detect if running as standalone PWA
-  if (window.matchMedia('(display-mode: standalone)').matches) {
+  const isStandalone =
+    window.matchMedia('(display-mode: standalone)').matches || Boolean(window.navigator.standalone);
+  if (isStandalone) {
     console.log('[PWA] Running as standalone app');
   }
-  
-  // Detect if running on iOS in standalone mode
+
   if (window.navigator.standalone) {
     console.log('[PWA] Running as iOS standalone app');
   }
+
+  emitInstallAvailability(window.deferredPrompt || null);
 }

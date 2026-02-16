@@ -1,23 +1,26 @@
 import { defineStore } from 'pinia';
 import { generateId, parseDate, readJson, writeJson } from '@/utils/storage';
+import { notifyBackupDirty } from '@/utils/backupDirtySignal';
+import { useHouseholdStore } from './household';
 
 const STORAGE_KEY = 'categories';
 
 const DEFAULT_CATEGORIES = [
-  { id: 'housing', name: 'Housing', type: 'expense', icon: 'home' },
-  { id: 'food-dining', name: 'Food & Dining', type: 'expense', icon: 'shopping-bag' },
-  { id: 'transportation', name: 'Transportation', type: 'expense', icon: 'truck' },
-  { id: 'entertainment', name: 'Entertainment', type: 'expense', icon: 'sparkles' },
-  { id: 'healthcare', name: 'Healthcare', type: 'expense', icon: 'heart' },
-  { id: 'savings', name: 'Savings', type: 'income', icon: 'wallet' },
-  { id: 'salary', name: 'Salary', type: 'income', icon: 'banknotes' },
-  { id: 'opening-balance', name: 'Opening balance', type: 'income', icon: 'banknotes' },
-  { id: 'transfer', name: 'Transfer', type: 'income', icon: 'arrows-right-left' }
+  { id: 'housing', name: 'Housing', type: 'expense', icon: 'home', excludeByDefault: false },
+  { id: 'food-dining', name: 'Food & Dining', type: 'expense', icon: 'shopping-bag', excludeByDefault: false },
+  { id: 'transportation', name: 'Transportation', type: 'expense', icon: 'truck', excludeByDefault: false },
+  { id: 'entertainment', name: 'Entertainment', type: 'expense', icon: 'sparkles', excludeByDefault: false },
+  { id: 'healthcare', name: 'Healthcare', type: 'expense', icon: 'heart', excludeByDefault: false },
+  { id: 'savings', name: 'Savings', type: 'income', icon: 'wallet', excludeByDefault: false },
+  { id: 'salary', name: 'Salary', type: 'income', icon: 'banknotes', excludeByDefault: false },
+  { id: 'opening-balance', name: 'Opening balance', type: 'income', icon: 'banknotes', excludeByDefault: false },
+  { id: 'transfer', name: 'Transfer', type: 'income', icon: 'arrows-right-left', excludeByDefault: true }
 ];
 
 function deserialiseCategory(record) {
   return {
     ...record,
+    excludeByDefault: Boolean(record.excludeByDefault),
     createdAt: parseDate(record.createdAt),
     updatedAt: parseDate(record.updatedAt)
   };
@@ -26,6 +29,7 @@ function deserialiseCategory(record) {
 function serialiseCategory(category) {
   return {
     ...category,
+    excludeByDefault: Boolean(category.excludeByDefault),
     createdAt: category.createdAt ? category.createdAt.toISOString() : null,
     updatedAt: category.updatedAt ? category.updatedAt.toISOString() : null
   };
@@ -64,13 +68,20 @@ export const useCategoriesStore = defineStore('categories', {
     persist() {
       const serialised = this.categories.map(serialiseCategory).sort((a, b) => a.name.localeCompare(b.name));
       writeJson(STORAGE_KEY, serialised);
+      notifyBackupDirty('categories');
     },
     upsertCategory(category) {
+      const householdStore = useHouseholdStore();
+      if (!householdStore.initialized) {
+        householdStore.init();
+      }
+      householdStore.ensureCanEditFinancialData('edit categories');
       const payload = {
         ...category,
         name: String(category.name ?? '').trim(),
         type: category.type === 'income' ? 'income' : 'expense',
-        icon: String(category.icon ?? '').trim()
+        icon: String(category.icon ?? '').trim(),
+        excludeByDefault: Boolean(category.excludeByDefault)
       };
       if (!payload.name) {
         throw new Error('Category name is required');
@@ -98,6 +109,9 @@ export const useCategoriesStore = defineStore('categories', {
       }
       this.categories.sort((a, b) => a.name.localeCompare(b.name));
       this.persist();
+      householdStore.logEvent('category.upserted', `Saved category "${payload.name}"`, {
+        categoryId: payload.id
+      });
       return payload.id;
     },
     replaceAll(categories) {

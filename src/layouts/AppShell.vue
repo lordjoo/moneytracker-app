@@ -35,6 +35,43 @@
       </nav>
     </header>
 
+    <section
+      v-if="backupSyncStore.showBanner"
+      class="mx-auto w-full max-w-5xl px-4 pt-4"
+    >
+      <div class="alert shadow-sm" :class="backupAlertClass">
+        <div class="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
+          <span class="flex-1 text-sm">{{ backupSyncStore.bannerMessage }}</span>
+          <div class="flex shrink-0 items-center gap-2">
+            <button
+              v-if="backupSyncStore.canPush"
+              class="btn btn-primary btn-xs"
+              :disabled="backupSyncStore.status === 'pushing' || backupSyncStore.status === 'pulling'"
+              :class="{ loading: backupSyncStore.status === 'pushing' }"
+              @click="pushBackup"
+            >
+              Push Local
+            </button>
+            <button
+              v-if="backupSyncStore.canPull"
+              class="btn btn-outline btn-xs"
+              :disabled="backupSyncStore.status === 'pushing' || backupSyncStore.status === 'pulling'"
+              :class="{ loading: backupSyncStore.status === 'pulling' }"
+              @click="pullBackup"
+            >
+              Pull Cloud
+            </button>
+            <button class="btn btn-ghost btn-xs btn-square" aria-label="Dismiss backup alert" @click="backupSyncStore.dismissBanner()">
+              <XMarkIcon class="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+      <p v-if="backupSyncStore.lastError" class="px-1 pt-1 text-xs text-error">
+        {{ backupSyncStore.lastError }}
+      </p>
+    </section>
+
     <main
       :class="[
         'mx-auto flex w-full flex-1 flex-col px-4 pb-24 pt-4 sm:pb-8',
@@ -76,7 +113,8 @@ import {
   BanknotesIcon,
   ArrowsRightLeftIcon,
   TagIcon,
-  EllipsisHorizontalCircleIcon
+  EllipsisHorizontalCircleIcon,
+  XMarkIcon
 } from '@heroicons/vue/24/outline';
 import { useAuthStore } from '@/stores/auth';
 import { useAccountsStore } from '@/stores/accounts';
@@ -84,6 +122,12 @@ import { useTransactionsStore } from '@/stores/transactions';
 import { useCategoriesStore } from '@/stores/categories';
 import { usePreferencesStore } from '@/stores/preferences';
 import { useCurrencyStore } from '@/stores/currency';
+import { useBudgetsStore } from '@/stores/budgets';
+import { useRecurringStore } from '@/stores/recurring';
+import { useGoalsStore } from '@/stores/goals';
+import { useHouseholdStore } from '@/stores/household';
+import { useMonthClosuresStore } from '@/stores/monthClosures';
+import { useBackupSyncStore } from '@/stores/backupSync';
 
 const route = useRoute();
 const authStore = useAuthStore();
@@ -92,6 +136,12 @@ const transactionsStore = useTransactionsStore();
 const categoriesStore = useCategoriesStore();
 const preferencesStore = usePreferencesStore();
 const currencyStore = useCurrencyStore();
+const budgetsStore = useBudgetsStore();
+const recurringStore = useRecurringStore();
+const goalsStore = useGoalsStore();
+const householdStore = useHouseholdStore();
+const monthClosuresStore = useMonthClosuresStore();
+const backupSyncStore = useBackupSyncStore();
 
 preferencesStore.init();
 
@@ -106,7 +156,12 @@ const navigation = computed(() => [
   { to: '/accounts', label: 'Accounts', icon: BanknotesIcon, active: route.path.startsWith('/accounts') },
   { to: '/transactions', label: 'Transactions', icon: ArrowsRightLeftIcon, active: route.path.startsWith('/transactions') },
   { to: '/categories', label: 'Categories', icon: TagIcon, active: route.path.startsWith('/categories') },
-  { to: '/more', label: 'More', icon: EllipsisHorizontalCircleIcon, active: route.path.startsWith('/more') || route.path.startsWith('/settings') }
+  {
+    to: '/more',
+    label: 'More',
+    icon: EllipsisHorizontalCircleIcon,
+    active: route.path.startsWith('/more') || route.path.startsWith('/settings') || route.path.startsWith('/planning')
+  }
 ]);
 
 const themeIcon = computed(() => (theme.value === 'mymoney-dark' ? SunIcon : MoonIcon));
@@ -115,18 +170,40 @@ const themeLabel = computed(() =>
 );
 
 const netWorthLabel = computed(() =>
-  currencyStore.formatCurrency(currencyStore.totalWorthInMain.value)
+  currencyStore.formatCurrency(currencyStore.totalWorthInMain)
 );
 const showNetWorthHint = computed(
-  () => (currencyStore.accountsMissingConversion.value || []).length > 0
+  () => (currencyStore.accountsMissingConversion || []).length > 0
 );
+const backupAlertClass = computed(() => {
+  if (backupSyncStore.pendingMode === 'pull') return 'alert-info';
+  if (backupSyncStore.pendingMode === 'push') return 'alert-accent';
+  return 'alert-info';
+});
 
 onMounted(async () => {
   applyTheme();
+  await authStore.init();
   accountsStore.init();
   transactionsStore.init();
   categoriesStore.init();
-  authStore.init();
+  budgetsStore.init();
+  recurringStore.init();
+  goalsStore.init();
+  householdStore.init();
+  monthClosuresStore.init();
+  backupSyncStore.init();
+  recurringStore.syncDueItems();
+  try {
+    await householdStore.handleAuthStateChanged();
+  } catch (error) {
+    console.error('Initial household cloud sync failed', error);
+  }
+  try {
+    await backupSyncStore.handleAuthChange();
+  } catch (error) {
+    console.error('Initial backup sync metadata check failed', error);
+  }
 });
 
 watch(
@@ -135,6 +212,23 @@ watch(
     if (next && next !== theme.value) {
       theme.value = next;
       applyTheme();
+    }
+  }
+);
+
+watch(
+  () => authStore.user?.uid ?? '',
+  async () => {
+    try {
+      await householdStore.handleAuthStateChanged();
+    } catch (error) {
+      console.error('Household cloud sync failed after auth state change', error);
+    }
+    try {
+      backupSyncStore.init();
+      await backupSyncStore.handleAuthChange();
+    } catch (error) {
+      console.error('Backup cloud metadata check failed after auth state change', error);
     }
   }
 );
@@ -153,6 +247,25 @@ function applyTheme() {
 function toggleTheme() {
   theme.value = theme.value === 'mymoney-dark' ? 'mymoney-light' : 'mymoney-dark';
   applyTheme();
+}
+
+async function pushBackup() {
+  try {
+    await backupSyncStore.pushNow();
+  } catch (error) {
+    console.error('Push backup from banner failed', error);
+  }
+}
+
+async function pullBackup() {
+  if (!confirm('Pull cloud backup now? Local data on this device will be replaced.')) {
+    return;
+  }
+  try {
+    await backupSyncStore.pullNow();
+  } catch (error) {
+    console.error('Pull backup from banner failed', error);
+  }
 }
 </script>
 

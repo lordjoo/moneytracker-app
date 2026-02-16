@@ -70,6 +70,21 @@
               <option value="transfer">Transfer</option>
             </select>
           </label>
+
+          <label class="form-control min-w-[150px]">
+            <div class="label pb-2">
+              <span class="label-text text-xs font-medium">Insights</span>
+            </div>
+            <select
+              :value="filters.excludeMode"
+              @change="$emit('update:filters', { ...filters, excludeMode: $event.target.value })"
+              class="select select-bordered select-md w-full text-base-content"
+            >
+              <option value="all">All</option>
+              <option value="included">Included only</option>
+              <option value="excluded">Excluded only</option>
+            </select>
+          </label>
         </div>
       </div>
     </div>

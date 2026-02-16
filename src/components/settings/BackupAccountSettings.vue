@@ -10,8 +10,15 @@
           <li>Accounts: <strong>{{ accountsStore.accounts.length }}</strong></li>
           <li>Categories: <strong>{{ categoriesStore.categories.length }}</strong></li>
           <li>Transactions: <strong>{{ transactionsStore.transactions.length }}</strong></li>
+          <li>Budgets: <strong>{{ budgetsStore.budgets.length }}</strong></li>
+          <li>Recurring rules: <strong>{{ recurringStore.rules.length }}</strong></li>
+          <li>Goals: <strong>{{ goalsStore.goals.length }}</strong></li>
+          <li>Household members: <strong>{{ householdStore.activeMembers.length }}</strong></li>
+          <li>Month closures: <strong>{{ monthClosuresStore.closures.length }}</strong></li>
           <li>Last backup: <strong>{{ lastBackupLabel }}</strong></li>
           <li>Last restore: <strong>{{ lastRestoreLabel }}</strong></li>
+          <li>Sync mode: <strong>Manual push/pull</strong></li>
+          <li>Sync status: <strong>{{ syncStateLabel }}</strong></li>
         </ul>
         <div class="alert" v-if="!authStore.isAuthenticated">
           <span>Sign in to enable cloud backups.</span>
@@ -19,21 +26,24 @@
         <div class="flex flex-wrap gap-2">
           <button
             class="btn btn-primary"
-            :disabled="!authStore.isAuthenticated || isBackingUp"
-            :class="{ loading: isBackingUp }"
+            :disabled="!authStore.isAuthenticated || backupSyncStore.status === 'pushing' || backupSyncStore.status === 'pulling'"
+            :class="{ loading: backupSyncStore.status === 'pushing' }"
             @click="backupNow"
           >
-            {{ authStore.isAuthenticated ? 'Backup to Firebase' : 'Sign in to backup' }}
+            {{ authStore.isAuthenticated ? 'Push to Firebase' : 'Sign in to backup' }}
           </button>
           <button
             class="btn btn-outline"
-            :disabled="!authStore.isAuthenticated || isRestoring"
-            :class="{ loading: isRestoring }"
+            :disabled="!authStore.isAuthenticated || backupSyncStore.status === 'pushing' || backupSyncStore.status === 'pulling'"
+            :class="{ loading: backupSyncStore.status === 'pulling' }"
             @click="restoreNow"
           >
-            Restore from Firebase
+            Pull from Firebase
           </button>
         </div>
+        <p v-if="authStore.isAuthenticated" class="text-xs opacity-70">
+          Cloud checks are metadata-only and run periodically to reduce Firestore reads.
+        </p>
         <p v-if="statusMessage" class="text-xs" :class="statusClass">{{ statusMessage }}</p>
       </div>
     </article>
@@ -74,17 +84,43 @@ import { useAuthStore } from '@/stores/auth';
 import { useAccountsStore } from '@/stores/accounts';
 import { useCategoriesStore } from '@/stores/categories';
 import { useTransactionsStore } from '@/stores/transactions';
+import { useBudgetsStore } from '@/stores/budgets';
+import { useRecurringStore } from '@/stores/recurring';
+import { useGoalsStore } from '@/stores/goals';
+import { useHouseholdStore } from '@/stores/household';
+import { useMonthClosuresStore } from '@/stores/monthClosures';
 import { usePreferencesStore } from '@/stores/preferences';
-import { uploadBackup, downloadBackup } from '@/utils/backupService';
+import { useBackupSyncStore } from '@/stores/backupSync';
 
 const authStore = useAuthStore();
 const accountsStore = useAccountsStore();
 const categoriesStore = useCategoriesStore();
 const transactionsStore = useTransactionsStore();
+const budgetsStore = useBudgetsStore();
+const recurringStore = useRecurringStore();
+const goalsStore = useGoalsStore();
+const householdStore = useHouseholdStore();
+const monthClosuresStore = useMonthClosuresStore();
 const preferencesStore = usePreferencesStore();
+const backupSyncStore = useBackupSyncStore();
 
-const isBackingUp = ref(false);
-const isRestoring = ref(false);
+if (!budgetsStore.initialized) {
+  budgetsStore.init();
+}
+if (!recurringStore.initialized) {
+  recurringStore.init();
+}
+if (!goalsStore.initialized) {
+  goalsStore.init();
+}
+if (!householdStore.initialized) {
+  householdStore.init();
+}
+if (!monthClosuresStore.initialized) {
+  monthClosuresStore.init();
+}
+backupSyncStore.init();
+
 const statusMessage = ref('');
 const statusKind = ref('info');
 const fallbackAvatar = ref(makeFallbackAvatar(authStore.displayName));
@@ -92,6 +128,11 @@ const fallbackAvatar = ref(makeFallbackAvatar(authStore.displayName));
 const lastBackupLabel = computed(() => formatTimestamp(preferencesStore.lastBackupDate));
 const lastRestoreLabel = computed(() => formatTimestamp(preferencesStore.lastRestoreDate));
 const isAuthenticating = computed(() => authStore.status === 'authenticating');
+const syncStateLabel = computed(() => {
+  if (backupSyncStore.pendingMode === 'pull') return 'Cloud has newer changes';
+  if (backupSyncStore.pendingMode === 'push') return 'Local changes waiting to push';
+  return 'In sync';
+});
 
 const statusClass = computed(() => {
   if (statusKind.value === 'error') return 'text-error';
@@ -175,35 +216,18 @@ async function signOut() {
   }
 }
 
-function toPlain(value) {
-  if (typeof structuredClone === 'function') {
-    return structuredClone(value);
-  }
-  return JSON.parse(JSON.stringify(value));
-}
-
 async function backupNow() {
   if (!authStore.user) {
     setStatus('error', 'Sign in with Google to create backups.');
     return;
   }
   try {
-    isBackingUp.value = true;
-    setStatus('info', 'Preparing backup…');
-    const payload = {
-      accounts: toPlain(accountsStore.accounts),
-      categories: toPlain(categoriesStore.categories),
-      transactions: toPlain(transactionsStore.transactions)
-    };
-    await uploadBackup(authStore.user.uid, payload);
-    const now = new Date();
-    preferencesStore.markBackup(now);
-    setStatus('success', `Backup completed at ${formatTimestamp(now)}.`);
+    setStatus('info', 'Pushing local changes…');
+    await backupSyncStore.pushNow();
+    setStatus('success', 'Local data pushed to Firebase.');
   } catch (error) {
     console.error(error);
-    setStatus('error', error.message ?? 'Backup failed.');
-  } finally {
-    isBackingUp.value = false;
+    setStatus('error', error.message ?? 'Push failed.');
   }
 }
 
@@ -216,24 +240,12 @@ async function restoreNow() {
     return;
   }
   try {
-    isRestoring.value = true;
-    setStatus('info', 'Fetching backup…');
-    const snapshot = await downloadBackup(authStore.user.uid);
-    if (!snapshot) {
-      setStatus('error', 'No backup found for this account.');
-      return;
-    }
-    accountsStore.replaceAll(snapshot.accounts ?? []);
-    categoriesStore.replaceAll(snapshot.categories ?? []);
-    transactionsStore.replaceAll(snapshot.transactions ?? []);
-    const restoredAt = new Date();
-    preferencesStore.markRestore(restoredAt);
-    setStatus('success', `Restore completed at ${formatTimestamp(restoredAt)}.`);
+    setStatus('info', 'Pulling cloud changes…');
+    await backupSyncStore.pullNow();
+    setStatus('success', 'Cloud backup pulled to this device.');
   } catch (error) {
     console.error(error);
-    setStatus('error', error.message ?? 'Restore failed.');
-  } finally {
-    isRestoring.value = false;
+    setStatus('error', error.message ?? 'Pull failed.');
   }
 }
 </script>

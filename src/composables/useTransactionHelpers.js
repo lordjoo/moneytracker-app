@@ -1,7 +1,7 @@
-import { computed } from 'vue';
 import { useAccountsStore } from '../stores/accounts';
 import { useCategoriesStore } from '../stores/categories';
 import { useCurrencyStore } from '../stores/currency';
+import { parseDateKey } from '../utils/dates';
 
 /**
  * Composable for transaction-related helper functions
@@ -16,7 +16,7 @@ export function useTransactionHelpers() {
    */
   function getTransactionTitle(tx) {
     if (tx.type === 'transfer') {
-      const counterparty = accountsStore.accountById(tx.counterpartyAccountId);
+      const counterparty = accountsStore.visibleAccountById(tx.counterpartyAccountId);
       return `Transfer to ${counterparty?.name ?? 'Unknown'}`;
     }
     
@@ -62,16 +62,36 @@ export function useTransactionHelpers() {
     return 'text-info';
   }
 
+  function toDate(value) {
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : value;
+    }
+    if (typeof value === 'string') {
+      const fromDateKey = parseDateKey(value);
+      if (fromDateKey) {
+        return fromDateKey;
+      }
+    }
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
   /**
-   * Format time from date string
+   * Format transaction date (date only, no time)
    */
-  function formatTime(dateString) {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
-      minute: '2-digit',
-      hour12: true 
-    });
+  function formatDateLabel(value) {
+    const date = toDate(value);
+    if (!date) {
+      return '--';
+    }
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium'
+    }).format(date);
+  }
+
+  // Backward-compatible alias for callers still using old helper name.
+  function formatTime(value) {
+    return formatDateLabel(value);
   }
 
   /**
@@ -88,7 +108,7 @@ export function useTransactionHelpers() {
    * Format transaction amount with currency
    */
   function formatTransactionAmount(tx) {
-    const account = accountsStore.accountById(tx.accountId);
+    const account = accountsStore.visibleAccountById(tx.accountId);
     const amount = Number(tx.amount) || 0;
     const sign = getTransactionSign(tx);
     
@@ -100,10 +120,11 @@ export function useTransactionHelpers() {
       };
     }
 
-    const accountCurrency = account.currency || currencyStore.baseCurrency;
+    const baseCurrency = currencyStore.mainCurrency || 'USD';
+    const accountCurrency = account.currency || baseCurrency;
     const formatted = currencyStore.formatCurrency(sign * amount, accountCurrency);
     
-    if (accountCurrency === currencyStore.baseCurrency) {
+    if (accountCurrency === baseCurrency) {
       return {
         formatted,
         formattedBase: null,
@@ -111,7 +132,7 @@ export function useTransactionHelpers() {
       };
     }
 
-    const converted = currencyStore.convertAmount(amount, accountCurrency, currencyStore.baseCurrency, {
+    const converted = currencyStore.convertAmount(amount, accountCurrency, baseCurrency, {
       requestIfMissing: true
     });
     
@@ -123,7 +144,7 @@ export function useTransactionHelpers() {
       };
     }
 
-    const formattedBase = currencyStore.formatCurrency(sign * converted, currencyStore.baseCurrency);
+    const formattedBase = currencyStore.formatCurrency(sign * converted, baseCurrency);
     
     return {
       formatted,
@@ -138,6 +159,7 @@ export function useTransactionHelpers() {
     getTransactionBgClass,
     getTypeBadgeClass,
     getTransactionTextClass,
+    formatDateLabel,
     formatTime,
     getTransactionSign,
     formatTransactionAmount

@@ -2,104 +2,305 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Helper functions for validation and security
     function isSignedIn() {
       return request.auth != null;
     }
-    
+
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
-    
+
     function isValidString(value, minLen, maxLen) {
-      return value is string 
-        && value.size() >= minLen 
+      return value is string
+        && value.size() >= minLen
         && value.size() <= maxLen;
     }
-    
+
     function isValidNumber(value) {
       return value is number && value >= 0;
     }
-    
-    function isValidTimestamp(value) {
-      return value is timestamp;
+
+    function isDateLike(value) {
+      return value == null || value is timestamp || value is string;
     }
-    
+
+    function isValidRole(role) {
+      return role in ['owner', 'editor', 'viewer'];
+    }
+
+    function authEmail() {
+      return isSignedIn() && request.auth.token.email is string
+        ? request.auth.token.email.lower()
+        : '';
+    }
+
+    function memberDocPath(householdId, uid) {
+      return /databases/$(database)/documents/household_members/$(householdId + '_' + uid);
+    }
+
+    function inviteDocPath(householdId, email) {
+      return /databases/$(database)/documents/household_members/$(householdId + '_invite_' + email);
+    }
+
+    function activeMemberExists(householdId) {
+      return isSignedIn() && exists(memberDocPath(householdId, request.auth.uid));
+    }
+
+    function activeMemberDoc(householdId) {
+      return get(memberDocPath(householdId, request.auth.uid)).data;
+    }
+
+    function isActiveMember(householdId) {
+      return activeMemberExists(householdId)
+        && activeMemberDoc(householdId).recordType == 'member'
+        && activeMemberDoc(householdId).status == 'active';
+    }
+
+    function memberRole(householdId) {
+      return isActiveMember(householdId) ? activeMemberDoc(householdId).role : '';
+    }
+
+    function canEditFinancialData(householdId) {
+      return memberRole(householdId) in ['owner', 'editor'];
+    }
+
+    function isHouseholdOwner(householdId) {
+      return memberRole(householdId) == 'owner';
+    }
+
+    function hasPendingInvite(householdId) {
+      return isSignedIn()
+        && authEmail() != ''
+        && exists(inviteDocPath(householdId, authEmail()))
+        && get(inviteDocPath(householdId, authEmail())).data.recordType == 'invite'
+        && get(inviteDocPath(householdId, authEmail())).data.status == 'pending'
+        && get(inviteDocPath(householdId, authEmail())).data.email == authEmail();
+    }
+
     function isValidBackupData(data) {
       return data.keys().hasAll(['accounts', 'categories', 'transactions'])
         && data.accounts is list
         && data.categories is list
         && data.transactions is list;
     }
-    
-    // User backups collection - stores encrypted backup data
-    // Path: /backups/{userId}
+
     match /backups/{userId} {
-      // Only authenticated users can access their own backup
       allow read: if isOwner(userId);
-      
-      // Users can create/update their own backup
       allow create, update: if isOwner(userId)
         && isValidBackupData(request.resource.data)
-        && request.resource.data.size() < 5000000; // Max 5MB per backup
-      
-      // Users can delete their own backup
+        && request.resource.data.size() < 5000000;
       allow delete: if isOwner(userId);
     }
-    
-    // User preferences/settings (optional, for future use)
-    // Path: /users/{userId}
+
+    match /backup_meta/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId)
+        && request.resource.data.version is number
+        && request.resource.data.fingerprint is string
+        && request.resource.data.updatedByDevice is string
+        && request.resource.data.counts is map
+        && request.resource.data.updatedAt is timestamp;
+      allow delete: if isOwner(userId);
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId);
-      
       allow create, update: if isOwner(userId)
         && request.resource.data.keys().hasAll(['createdAt', 'updatedAt'])
-        && isValidTimestamp(request.resource.data.createdAt)
-        && isValidTimestamp(request.resource.data.updatedAt);
-      
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
       allow delete: if isOwner(userId);
+
+      match /backups/{backupId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidBackupData(request.resource.data)
+          && request.resource.data.size() < 5000000;
+        allow delete: if isOwner(userId);
+      }
     }
-    
-    // Currency exchange rates (public read, admin write only)
-    // Path: /currency_rates/{rateId}
+
+    match /households/{householdId} {
+      allow read: if isActiveMember(householdId) || hasPendingInvite(householdId);
+
+      allow create: if isSignedIn()
+        && request.resource.data.id == householdId
+        && request.resource.data.ownerUid == request.auth.uid
+        && isValidString(request.resource.data.name, 1, 120)
+        && isValidNumber(request.resource.data.syncRevision)
+        && isDateLike(request.resource.data.createdAt)
+        && isDateLike(request.resource.data.updatedAt);
+
+      allow update: if (
+        canEditFinancialData(householdId)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.ownerUid == resource.data.ownerUid
+      ) || (
+        hasPendingInvite(householdId)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.name == resource.data.name
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['syncRevision', 'updatedAt', 'updatedBy'])
+      );
+
+      allow delete: if isHouseholdOwner(householdId);
+    }
+
+    match /household_members/{docId} {
+      allow read: if isSignedIn()
+        && (
+          (resource.data.householdId is string && isActiveMember(resource.data.householdId))
+          || (resource.data.recordType == 'invite' && resource.data.email == authEmail())
+        );
+
+      allow create: if isSignedIn()
+        && request.resource.data.householdId is string
+        && (
+          (
+            request.resource.data.recordType == 'member'
+            && isHouseholdOwner(request.resource.data.householdId)
+            && isValidRole(request.resource.data.role)
+            && request.resource.data.status in ['active', 'removed']
+          ) || (
+            request.resource.data.recordType == 'member'
+            && hasPendingInvite(request.resource.data.householdId)
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.email == authEmail()
+            && request.resource.data.status == 'active'
+            && isValidRole(request.resource.data.role)
+            && docId == request.resource.data.householdId + '_' + request.auth.uid
+          ) || (
+            request.resource.data.recordType == 'invite'
+            && isHouseholdOwner(request.resource.data.householdId)
+            && isValidRole(request.resource.data.role)
+            && request.resource.data.email is string
+            && request.resource.data.email.lower() == request.resource.data.email
+            && docId == request.resource.data.householdId + '_invite_' + request.resource.data.email
+          )
+        );
+
+      allow update: if isSignedIn()
+        && resource.data.householdId == request.resource.data.householdId
+        && (
+          (
+            request.resource.data.recordType == 'member'
+            && resource.data.recordType == 'member'
+            && isHouseholdOwner(resource.data.householdId)
+            && isValidRole(request.resource.data.role)
+            && request.resource.data.status in ['active', 'removed']
+          ) || (
+            request.resource.data.recordType == 'invite'
+            && resource.data.recordType == 'invite'
+            && isHouseholdOwner(resource.data.householdId)
+            && isValidRole(request.resource.data.role)
+            && request.resource.data.status in ['pending', 'accepted', 'revoked']
+          ) || (
+            request.resource.data.recordType == 'invite'
+            && resource.data.recordType == 'invite'
+            && resource.data.email == authEmail()
+            && (
+              (
+                resource.data.status == 'pending'
+                && hasPendingInvite(resource.data.householdId)
+                && request.resource.data.status == 'accepted'
+                && request.resource.data.acceptedAt != null
+              ) || (
+                resource.data.status == 'accepted'
+                && request.resource.data.status == 'accepted'
+              )
+            )
+            && request.resource.data.email == resource.data.email
+            && request.resource.data.role == resource.data.role
+            && request.resource.data.householdId == resource.data.householdId
+            && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'status',
+              'acceptedAt',
+              'acceptedByMemberId',
+              'updatedAt',
+              'updatedBy'
+            ])
+          ) || (
+            request.resource.data.recordType == 'member'
+            && resource.data.recordType == 'member'
+            && resource.data.uid == request.auth.uid
+            && docId == resource.data.householdId + '_' + request.auth.uid
+            && request.resource.data.uid == resource.data.uid
+            && request.resource.data.email == authEmail()
+            && request.resource.data.role == resource.data.role
+            && request.resource.data.status == 'active'
+          )
+        );
+
+      allow delete: if isSignedIn() && resource.data.householdId is string && isHouseholdOwner(resource.data.householdId);
+    }
+
+    match /audit_events/{eventId} {
+      allow read: if resource.data.householdId is string && isActiveMember(resource.data.householdId);
+
+      allow create: if isSignedIn()
+        && request.resource.data.householdId is string
+        && request.resource.data.id == eventId
+        && isActiveMember(request.resource.data.householdId)
+        && isValidString(request.resource.data.type, 1, 120)
+        && isValidString(request.resource.data.message, 1, 300)
+        && request.resource.data.actor is map
+        && request.resource.data.meta is map
+        && isDateLike(request.resource.data.createdAt);
+
+      allow update: if resource.data.householdId is string
+        && isActiveMember(resource.data.householdId)
+        && request.resource.data.diff(resource.data).changedKeys().size() == 0;
+
+      allow delete: if false;
+    }
+
+    match /month_closures/{closureId} {
+      allow read: if resource.data.householdId is string && isActiveMember(resource.data.householdId);
+
+      allow create: if isSignedIn()
+        && request.resource.data.householdId is string
+        && canEditFinancialData(request.resource.data.householdId)
+        && request.resource.data.monthKey is string
+        && closureId == request.resource.data.householdId + '_' + request.resource.data.monthKey
+        && request.resource.data.status in ['closed', 'reopened']
+        && isDateLike(request.resource.data.closedAt)
+        && isDateLike(request.resource.data.reopenedAt);
+
+      allow update: if isSignedIn()
+        && resource.data.householdId == request.resource.data.householdId
+        && resource.data.monthKey == request.resource.data.monthKey
+        && canEditFinancialData(resource.data.householdId)
+        && (
+          !(resource.data.status == 'closed' && request.resource.data.status == 'reopened')
+          || isHouseholdOwner(resource.data.householdId)
+        )
+        && request.resource.data.status in ['closed', 'reopened']
+        && isDateLike(request.resource.data.closedAt)
+        && isDateLike(request.resource.data.reopenedAt)
+        && isDateLike(request.resource.data.updatedAt);
+
+      allow delete: if false;
+    }
+
     match /currency_rates/{rateId} {
-      // Anyone can read exchange rates (for currency conversion)
       allow read: if true;
-      
-      // Only allow writes from authenticated users (for now)
-      // In production, you might want to restrict this to admin users only
-      // or use Cloud Functions to update rates from an external API
-      allow write: if false; // Disable direct writes, use Cloud Functions
-    }
-    
-    // App metadata (version info, announcements, etc.)
-    // Path: /metadata/{docId}
-    match /metadata/{docId} {
-      // Anyone can read metadata
-      allow read: if true;
-      
-      // No one can write (use Cloud Functions or Firebase Console)
       allow write: if false;
     }
-    
-    // Analytics events (optional, for future use)
-    // Path: /analytics/{userId}/events/{eventId}
+
+    match /metadata/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     match /analytics/{userId}/events/{eventId} {
-      // Users can write their own analytics events
       allow create: if isOwner(userId)
         && request.resource.data.keys().hasAll(['timestamp', 'event'])
-        && isValidTimestamp(request.resource.data.timestamp)
+        && request.resource.data.timestamp is timestamp
         && isValidString(request.resource.data.event, 1, 100);
-      
-      // No one can read analytics (use Cloud Functions for processing)
       allow read: if false;
-      
-      // No updates or deletes
       allow update, delete: if false;
     }
-    
-    // Deny access to all other paths
+
     match /{document=**} {
       allow read, write: if false;
     }

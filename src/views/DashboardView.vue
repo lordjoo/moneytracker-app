@@ -5,7 +5,7 @@
         <div class="card-body">
           <h2 class="card-title">Total Net Worth</h2>
           <p class="text-3xl font-semibold">{{ formatCurrency(totalWorth) }}</p>
-          <p class="text-xs opacity-70">Across {{ accountsStore.accounts.length }} accounts</p>
+          <p class="text-xs opacity-70">Across {{ accountsStore.visibleAccounts.length }} accounts</p>
         </div>
       </article>
       <article class="card bg-base-100 shadow">
@@ -25,6 +25,50 @@
       </article>
     </section>
 
+    <section class="grid gap-4 lg:grid-cols-3">
+      <article class="card bg-base-100 shadow">
+        <div class="card-body">
+          <div class="flex items-center justify-between">
+            <h2 class="card-title text-base">Budget Health</h2>
+            <RouterLink to="/planning" class="link text-xs">Open planning</RouterLink>
+          </div>
+          <p class="text-2xl font-semibold">{{ planningSnapshot.averageBudgetUsage.toFixed(1) }}%</p>
+          <p class="text-xs opacity-70">Average usage across {{ planningSnapshot.budgetCount }} monthly budgets</p>
+          <p v-if="planningSnapshot.overBudgetCount" class="text-xs text-error">
+            {{ planningSnapshot.overBudgetCount }} categories over budget
+          </p>
+        </div>
+      </article>
+      <article class="card bg-base-100 shadow">
+        <div class="card-body">
+          <div class="flex items-center justify-between">
+            <h2 class="card-title text-base">Recurring Due</h2>
+            <RouterLink to="/planning" class="link text-xs">Review now</RouterLink>
+          </div>
+          <p class="text-2xl font-semibold">{{ visibleRecurringDueCount }}</p>
+          <p class="text-xs opacity-70">Pending recurring items waiting to post</p>
+          <button
+            class="btn btn-outline btn-sm mt-2 w-fit"
+            :disabled="!visibleRecurringDueCount"
+            @click="postAllDue"
+          >
+            Post all due
+          </button>
+        </div>
+      </article>
+      <article class="card bg-base-100 shadow">
+        <div class="card-body">
+          <div class="flex items-center justify-between">
+            <h2 class="card-title text-base">Goals Progress</h2>
+            <RouterLink to="/planning" class="link text-xs">View goals</RouterLink>
+          </div>
+          <p class="text-2xl font-semibold">{{ planningSnapshot.averageGoalProgress.toFixed(1) }}%</p>
+          <p class="text-xs opacity-70">Average completion across {{ planningSnapshot.goalCount }} goals</p>
+          <progress class="progress progress-success mt-2" :value="planningSnapshot.averageGoalProgress" max="100"></progress>
+        </div>
+      </article>
+    </section>
+
     <section class="card bg-base-100 shadow">
       <div class="card-body">
         <div class="flex flex-wrap items-center gap-3">
@@ -32,11 +76,12 @@
           <span class="badge badge-outline">Better monthly tracking</span>
         </div>
           <ul class="divide-y divide-base-300">
-            <li v-for="account in accountsStore.sortedAccounts" :key="account.id" class="flex items-center justify-between py-3">
+            <li v-for="account in accountsStore.visibleSortedAccounts" :key="account.id" class="flex items-center justify-between py-3">
               <div>
                 <p class="font-medium flex items-center gap-2">
                   {{ account.name }}
                   <span v-if="account.isClosed" class="badge badge-outline badge-xs">Closed</span>
+                  <span v-if="account.excludeFromHousehold" class="badge badge-warning badge-xs">Private</span>
                 </p>
                 <p class="text-xs opacity-70">Cycle day: {{ account.cycleDay ? account.cycleDay : 'None set' }}</p>
                 <p class="text-xs opacity-70">
@@ -128,12 +173,19 @@ import { useAccountsStore } from '@/stores/accounts';
 import { useTransactionsStore } from '@/stores/transactions';
 import { useCategoriesStore } from '@/stores/categories';
 import { useCurrencyStore } from '@/stores/currency';
+import { useBudgetsStore } from '@/stores/budgets';
+import { useRecurringStore } from '@/stores/recurring';
+import { useGoalsStore } from '@/stores/goals';
+import { toMonthKey } from '@/utils/dates';
 import { RouterLink } from 'vue-router';
 import CategoryIcon from '@/components/CategoryIcon.vue';
 
 const accountsStore = useAccountsStore();
 const transactionsStore = useTransactionsStore();
 const categoriesStore = useCategoriesStore();
+const budgetsStore = useBudgetsStore();
+const recurringStore = useRecurringStore();
+const goalsStore = useGoalsStore();
 
 if (!accountsStore.initialized) {
   accountsStore.init();
@@ -144,13 +196,72 @@ if (!transactionsStore.initialized) {
 if (!categoriesStore.initialized) {
   categoriesStore.init();
 }
+if (!budgetsStore.initialized) {
+  budgetsStore.init();
+}
+if (!recurringStore.initialized) {
+  recurringStore.init();
+}
+if (!goalsStore.initialized) {
+  goalsStore.init();
+}
 
 const currencyStore = useCurrencyStore();
+recurringStore.syncDueItems();
 
-const totalWorth = computed(() => currencyStore.totalWorthInMain.value);
+const totalWorth = computed(() => {
+  const target = currencyStore.mainCurrency;
+  let total = 0;
+  for (const account of accountsStore.visibleAccounts) {
+    const amount = Number(account.balance) || 0;
+    const sourceCurrency = account.currency || target;
+    if (sourceCurrency === target) {
+      total += amount;
+      continue;
+    }
+    const converted = currencyStore.convertAmount(amount, sourceCurrency, target, {
+      requestIfMissing: false
+    });
+    if (converted !== null) {
+      total += converted;
+    }
+  }
+  return total;
+});
+const planningSnapshot = computed(() => {
+  const budgetSummaries = budgetsStore.getMonthlySummary(toMonthKey(new Date()));
+  const budgetCount = budgetSummaries.length;
+  const overBudgetCount = budgetSummaries.filter((entry) => entry.remaining < 0).length;
+  const totalUsage = budgetSummaries.reduce((sum, entry) => sum + entry.usagePercent, 0);
+  const averageBudgetUsage = budgetCount ? totalUsage / budgetCount : 0;
+
+  const goalSummaries = goalsStore.getAllGoalSummaries();
+  const goalCount = goalSummaries.length;
+  const goalProgressTotal = goalSummaries.reduce((sum, entry) => sum + entry.progressPercent, 0);
+  const averageGoalProgress = goalCount ? goalProgressTotal / goalCount : 0;
+
+  return {
+    budgetCount,
+    overBudgetCount,
+    averageBudgetUsage,
+    goalCount,
+    averageGoalProgress
+  };
+});
+
+const visibleRecurringDueInstances = computed(() =>
+  recurringStore.dueInstances.filter((instance) => {
+    const rule = recurringStore.ruleById(instance.ruleId);
+    if (!rule) return false;
+    if (!accountsStore.isAccountVisible(rule.accountId)) return false;
+    if (rule.type === 'transfer' && !accountsStore.isAccountVisible(rule.counterpartyAccountId)) return false;
+    return true;
+  })
+);
+const visibleRecurringDueCount = computed(() => visibleRecurringDueInstances.value.length);
 
 function convertAmountForAccount(amount, account) {
-  const baseCurrency = currencyStore.mainCurrency.value;
+  const baseCurrency = currencyStore.mainCurrency;
   const sourceCurrency = account?.currency || baseCurrency;
   const converted = currencyStore.convertAmount(amount, sourceCurrency, baseCurrency, {
     requestIfMissing: true
@@ -174,7 +285,8 @@ const currentMonth = computed(() => {
   let pending = false;
 
   for (const tx of transactionsStore.transactions) {
-    const account = accountsStore.accountById(tx.accountId);
+    if (tx.excludeFromInsights) continue;
+    const account = accountsStore.visibleAccountById(tx.accountId);
     if (!account || account.isClosed) continue;
     const date = tx.occurredAt ?? tx.createdAt ?? new Date();
     const amount = Number(tx.amount) || 0;
@@ -216,7 +328,8 @@ const topSpendingCategories = computed(() => {
   let pending = false;
 
   for (const tx of transactionsStore.transactions) {
-    const account = accountsStore.accountById(tx.accountId);
+    if (tx.excludeFromInsights) continue;
+    const account = accountsStore.visibleAccountById(tx.accountId);
     if (!account || account.isClosed) continue;
     const date = tx.occurredAt ?? tx.createdAt ?? new Date();
     if (date < startOfMonth) continue;
@@ -256,35 +369,37 @@ const topSpendingCategories = computed(() => {
   };
 });
 
-const recentTransactions = computed(() => transactionsStore.transactions.slice(0, 5));
+const recentTransactions = computed(() =>
+  transactionsStore.transactions.filter((tx) => accountsStore.isAccountVisible(tx.accountId)).slice(0, 5)
+);
 const visibleRecentTransactions = computed(() =>
-  recentTransactions.value.filter((tx) => !accountsStore.accountById(tx.accountId)?.isClosed)
+  recentTransactions.value.filter((tx) => !accountsStore.visibleAccountById(tx.accountId)?.isClosed)
 );
 
-function formatCurrency(value, currency = currencyStore.mainCurrency.value) {
+function formatCurrency(value, currency = currencyStore.mainCurrency) {
   return currencyStore.formatCurrency(value, currency);
 }
 
 const accountConversions = currencyStore.convertedAccountBalances;
-const hasCurrencyToken = computed(() => currencyStore.hasToken.value);
+const hasCurrencyToken = computed(() => currencyStore.hasToken);
 
 function accountBalanceInBase(accountId) {
-  return accountConversions.value?.get?.(accountId) ?? null;
+  return accountConversions?.get?.(accountId) ?? null;
 }
 
 const recentTransactionSummaries = computed(() =>
   visibleRecentTransactions.value.map((tx) => {
-    const account = accountsStore.accountById(tx.accountId);
+    const account = accountsStore.visibleAccountById(tx.accountId);
     const baseAmount = convertAmountForAccount(Number(tx.amount) || 0, account);
     const sign = txSign(tx);
-    const accountCurrency = account?.currency || currencyStore.mainCurrency.value;
+    const accountCurrency = account?.currency || currencyStore.mainCurrency;
     const primary = formatCurrency(sign * (Number(tx.amount) || 0), accountCurrency);
     const converted =
-      accountCurrency !== currencyStore.mainCurrency.value && !baseAmount.pending
+      accountCurrency !== currencyStore.mainCurrency && !baseAmount.pending
         ? formatCurrency(sign * baseAmount.value)
         : null;
     const pendingConversion =
-      accountCurrency !== currencyStore.mainCurrency.value && baseAmount.pending;
+      accountCurrency !== currencyStore.mainCurrency && baseAmount.pending;
     return {
       tx,
       primary,
@@ -300,7 +415,7 @@ function formatDate(date) {
 
 function renderTransactionTitle(tx) {
   if (tx.type === 'transfer') {
-    return `${tx.direction === 'outgoing' ? 'Sent to' : 'Received from'} ${accountsStore.accountById(tx.counterpartyAccountId)?.name ?? 'Account'}`;
+    return `${tx.direction === 'outgoing' ? 'Sent to' : 'Received from'} ${accountsStore.visibleAccountById(tx.counterpartyAccountId)?.name ?? 'Account'}`;
   }
   const categoryName = categoriesStore.byId(tx.categoryId)?.name ?? 'Uncategorized';
   return `${categoryName}`;
@@ -320,5 +435,16 @@ function txSign(tx) {
 
 function txClass(tx) {
   return txSign(tx) > 0 ? 'text-success font-medium' : 'text-error font-medium';
+}
+
+async function postAllDue() {
+  try {
+    for (const instance of visibleRecurringDueInstances.value) {
+      await recurringStore.postInstance(instance.id);
+    }
+  } catch (error) {
+    console.error('Failed to post recurring items from dashboard:', error);
+    alert(error.message ?? 'Failed to post recurring items.');
+  }
 }
 </script>

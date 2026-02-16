@@ -5,6 +5,7 @@
         <div class="flex items-center gap-2">
           <h1 class="text-2xl font-semibold">{{ account.name }}</h1>
           <span v-if="account.isClosed" class="badge badge-outline badge-sm">Closed</span>
+          <span v-if="account.excludeFromHousehold" class="badge badge-warning badge-sm">Private</span>
         </div>
         <p class="text-sm opacity-70">Cycle day: {{ account.cycleDay ?? 'Not set' }}</p>
         <p class="text-sm opacity-70">Currency: {{ account.currency ?? currencyStore.mainCurrency }}</p>
@@ -18,11 +19,15 @@
           </span>
           <span v-else>Conversion pending…</span>
         </p>
-        <button class="btn btn-primary btn-sm" :disabled="isClosed" @click="openTransaction = true">
-          {{ isClosed ? 'Account closed' : 'Add transaction' }}
+        <button class="btn btn-primary btn-sm" :disabled="isClosed || !canEditFinancialData" @click="openTransaction = true">
+          {{ isClosed ? 'Account closed' : (canEditFinancialData ? 'Add transaction' : 'Read-only role') }}
         </button>
       </div>
     </header>
+
+    <p v-if="!canEditFinancialData" class="rounded-lg bg-base-100/80 px-4 py-3 text-sm opacity-80">
+      Your role is read-only. You can review activity but cannot modify transactions.
+    </p>
 
     <p v-if="isClosed" class="rounded-lg bg-base-100/80 px-4 py-3 text-sm opacity-80">
       This account is closed. You can review history, but new transactions cannot be recorded.
@@ -70,7 +75,9 @@
               </div>
             </div>
             <div class="flex items-center gap-3">
-              <span class="badge badge-outline">{{ item.tx.type }}</span>
+                <span class="badge badge-outline">{{ item.tx.type }}</span>
+                <span v-if="item.tx.excludeFromInsights" class="badge badge-ghost">Excluded</span>
+                <span v-if="item.isLockedMonth" class="badge badge-warning badge-outline">Locked month</span>
               <div class="text-right">
                 <span :class="txClass(item.tx)">{{ item.formattedAccount }}</span>
                 <p v-if="item.formattedBase" class="text-xs opacity-60">≈ {{ item.formattedBase }}</p>
@@ -79,6 +86,7 @@
               <button
                 class="btn btn-ghost btn-xs text-error"
                 :title="`Delete ${renderTransactionTitle(item.tx)}`"
+                :disabled="item.isLockedMonth || !canEditFinancialData"
                 @click="requestDelete(item.tx)"
               >
                 <TrashIcon class="h-4 w-4" />
@@ -132,13 +140,19 @@
                     <span class="label-text">Category</span>
                     <select v-model="transactionForm.categoryId" class="select select-bordered" required>
                       <option disabled value="">Select a category</option>
-                      <optgroup label="Income" v-if="incomeCategories.length">
-                        <option v-for="cat in incomeCategories" :key="cat.id" :value="cat.id" v-if="transactionForm.type === 'credit'">
+                      <optgroup
+                        label="Income"
+                        v-if="transactionForm.type === 'credit' && incomeCategories.length"
+                      >
+                        <option v-for="cat in incomeCategories" :key="cat.id" :value="cat.id">
                           {{ cat.name }}
                         </option>
                       </optgroup>
-                      <optgroup label="Expenses" v-if="expenseCategories.length">
-                        <option v-for="cat in expenseCategories" :key="cat.id" :value="cat.id" v-if="transactionForm.type === 'debit'">
+                      <optgroup
+                        label="Expenses"
+                        v-else-if="transactionForm.type === 'debit' && expenseCategories.length"
+                      >
+                        <option v-for="cat in expenseCategories" :key="cat.id" :value="cat.id">
                           {{ cat.name }}
                         </option>
                       </optgroup>
@@ -166,6 +180,13 @@
                   <label class="form-control w-full">
                     <span class="label-text">Note</span>
                     <textarea v-model="transactionForm.note" class="textarea textarea-bordered" rows="2" placeholder="Optional memo"></textarea>
+                  </label>
+                  <label class="label cursor-pointer justify-start gap-3 rounded-lg border border-base-300 p-3">
+                    <input v-model="transactionForm.excludeFromInsights" type="checkbox" class="checkbox checkbox-sm" />
+                    <div>
+                      <p class="text-sm font-medium">Exclude from insights</p>
+                      <p class="text-xs opacity-65">Still affects balance, excluded from reports and budgets.</p>
+                    </div>
                   </label>
                   <div class="flex justify-end gap-2 pt-2">
                     <button type="button" class="btn btn-ghost" @click="openTransaction = false">Cancel</button>
@@ -198,6 +219,9 @@ import { useAccountsStore } from '@/stores/accounts';
 import { useTransactionsStore } from '@/stores/transactions';
 import { useCategoriesStore } from '@/stores/categories';
 import { useCurrencyStore } from '@/stores/currency';
+import { useHouseholdStore } from '@/stores/household';
+import { useMonthClosuresStore } from '@/stores/monthClosures';
+import { coerceDateKey, toDateKey } from '@/utils/dates';
 import CategoryIcon from '@/components/CategoryIcon.vue';
 import ConfirmationDialog from '@/components/ConfirmationDialog.vue';
 import { TrashIcon } from '@heroicons/vue/24/outline';
@@ -207,6 +231,8 @@ const accountsStore = useAccountsStore();
 const transactionsStore = useTransactionsStore();
 const categoriesStore = useCategoriesStore();
 const currencyStore = useCurrencyStore();
+const householdStore = useHouseholdStore();
+const monthClosuresStore = useMonthClosuresStore();
 
 if (!accountsStore.initialized) {
   accountsStore.init();
@@ -217,11 +243,18 @@ if (!transactionsStore.initialized) {
 if (!categoriesStore.initialized) {
   categoriesStore.init();
 }
+if (!householdStore.initialized) {
+  householdStore.init();
+}
+if (!monthClosuresStore.initialized) {
+  monthClosuresStore.init();
+}
 
-const account = computed(() => accountsStore.accountById(route.params.id));
+const account = computed(() => accountsStore.visibleAccountById(route.params.id));
 const openTransaction = ref(false);
 const isProcessing = ref(false);
 const isClosed = computed(() => account.value?.isClosed ?? false);
+const canEditFinancialData = computed(() => householdStore.canEditFinancialData);
 const openDeleteDialog = ref(false);
 const transactionToDelete = ref(null);
 const deletePrompt = computed(() => {
@@ -234,10 +267,11 @@ const deletePrompt = computed(() => {
 const transactionForm = reactive({
   type: 'debit',
   amount: 0,
-  date: new Date().toISOString().slice(0, 10),
+  date: toDateKey(new Date()),
   categoryId: '',
   counterpartyAccountId: '',
-  note: ''
+  note: '',
+  excludeFromInsights: false
 });
 
 watch(
@@ -246,6 +280,19 @@ watch(
     transactionForm.categoryId = '';
     if (next !== 'transfer') {
       transactionForm.counterpartyAccountId = '';
+    } else {
+      transactionForm.excludeFromInsights = false;
+    }
+  }
+);
+
+watch(
+  () => transactionForm.categoryId,
+  (categoryId) => {
+    if (!categoryId || transactionForm.type === 'transfer') return;
+    const category = categoriesStore.byId(categoryId);
+    if (category) {
+      transactionForm.excludeFromInsights = Boolean(category.excludeByDefault);
     }
   }
 );
@@ -270,7 +317,7 @@ const expenseCategories = computed(() => categoriesStore.expenseCategories);
 const incomeCategories = computed(() => categoriesStore.incomeCategories);
 
 const transferTargets = computed(() =>
-  accountsStore.accounts.filter(
+  accountsStore.visibleOpenAccounts.filter(
     (candidate) => candidate.id !== account.value?.id && !candidate.isClosed
   )
 );
@@ -292,7 +339,7 @@ const accountTransactions = computed(() =>
 
 const convertedAccountBalance = computed(() => {
   if (!account.value) return null;
-  const baseCurrency = currencyStore.mainCurrency.value;
+  const baseCurrency = currencyStore.mainCurrency;
   const accountCurrency = account.value.currency || baseCurrency;
   if (accountCurrency === baseCurrency) {
     return Number(account.value.balance) || 0;
@@ -313,6 +360,7 @@ const monthly = computed(() => {
   let outflow = 0;
 
   for (const tx of accountTransactions.value) {
+    if (tx.excludeFromInsights) continue;
     const date = tx.occurredAt ?? tx.createdAt ?? new Date();
     if (date < startOfMonth) continue;
     const amount = Number(tx.amount) || 0;
@@ -327,7 +375,7 @@ const monthly = computed(() => {
 });
 
 const accountCurrencyCode = computed(
-  () => account.value?.currency || currencyStore.mainCurrency.value
+  () => account.value?.currency || currencyStore.mainCurrency
 );
 
 function formatCurrency(value, currency = accountCurrencyCode.value) {
@@ -335,7 +383,7 @@ function formatCurrency(value, currency = accountCurrencyCode.value) {
 }
 
 function formatBaseCurrency(value) {
-  return currencyStore.formatCurrency(value, currencyStore.mainCurrency.value);
+  return currencyStore.formatCurrency(value, currencyStore.mainCurrency);
 }
 
 function formatDate(date) {
@@ -344,7 +392,7 @@ function formatDate(date) {
 
 function renderTransactionTitle(tx) {
   if (tx.type === 'transfer') {
-    return `${tx.direction === 'outgoing' ? 'Transfer to' : 'Transfer from'} ${accountsStore.accountById(tx.counterpartyAccountId)?.name ?? 'Account'}`;
+    return `${tx.direction === 'outgoing' ? 'Transfer to' : 'Transfer from'} ${accountsStore.visibleAccountById(tx.counterpartyAccountId)?.name ?? 'Account'}`;
   }
   const category = categoriesStore.byId(tx.categoryId);
   return category?.name ?? 'Uncategorized';
@@ -362,6 +410,11 @@ function txSign(tx) {
   return 1;
 }
 
+function isTransactionLocked(tx) {
+  const monthKey = coerceDateKey(tx.occurredOn ?? tx.occurredAt ?? tx.createdAt, '').slice(0, 7);
+  return monthKey ? monthClosuresStore.isMonthClosed(monthKey) : false;
+}
+
 function txClass(tx) {
   return txSign(tx) > 0 ? 'text-success font-medium' : 'text-error font-medium';
 }
@@ -371,21 +424,22 @@ const accountTransactionSummaries = computed(() =>
     const sign = txSign(tx);
     const amount = Number(tx.amount) || 0;
     const accountCurrency = accountCurrencyCode.value;
-    const converted = currencyStore.convertAmount(amount, accountCurrency, currencyStore.mainCurrency.value, {
+    const converted = currencyStore.convertAmount(amount, accountCurrency, currencyStore.mainCurrency, {
       requestIfMissing: true
     });
     const pending =
-      accountCurrency !== currencyStore.mainCurrency.value && converted === null;
+      accountCurrency !== currencyStore.mainCurrency && converted === null;
     const formattedAccount = formatCurrency(sign * amount, accountCurrency);
     const formattedBase =
-      accountCurrency !== currencyStore.mainCurrency.value && !pending
+      accountCurrency !== currencyStore.mainCurrency && !pending
         ? formatBaseCurrency(sign * converted)
         : null;
     return {
       tx,
       formattedAccount,
       formattedBase,
-      pending
+      pending,
+      isLockedMonth: isTransactionLocked(tx)
     };
   })
 );
@@ -395,6 +449,10 @@ async function handleTransaction() {
     alert('Cannot add transactions to a closed account.');
     return;
   }
+  if (!canEditFinancialData.value) {
+    alert('Your role does not allow editing transactions.');
+    return;
+  }
   try {
     isProcessing.value = true;
     const payload = {
@@ -402,7 +460,8 @@ async function handleTransaction() {
       accountId: account.value.id,
       amount: transactionForm.amount,
       note: transactionForm.note,
-      occurredAt: new Date(transactionForm.date)
+      occurredAt: coerceDateKey(transactionForm.date, toDateKey(new Date())),
+      excludeFromInsights: Boolean(transactionForm.excludeFromInsights)
     };
 
     if (transactionForm.type === 'transfer') {
@@ -416,10 +475,11 @@ async function handleTransaction() {
     Object.assign(transactionForm, {
       type: 'debit',
       amount: 0,
-      date: new Date().toISOString().slice(0, 10),
+      date: toDateKey(new Date()),
       categoryId: '',
       counterpartyAccountId: '',
-      note: ''
+      note: '',
+      excludeFromInsights: false
     });
   } catch (error) {
     console.error(error);
@@ -430,6 +490,14 @@ async function handleTransaction() {
 }
 
 function requestDelete(tx) {
+  if (!canEditFinancialData.value) {
+    alert('Your role does not allow deleting transactions.');
+    return;
+  }
+  if (isTransactionLocked(tx)) {
+    alert(`Cannot delete transaction from ${(tx.occurredOn ?? '').slice(0, 7)} because that month is closed.`);
+    return;
+  }
   transactionToDelete.value = tx;
   openDeleteDialog.value = true;
 }

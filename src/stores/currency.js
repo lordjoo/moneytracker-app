@@ -214,7 +214,7 @@ export const useCurrencyStore = defineStore('currency', () => {
     const target = mainCurrency.value;
     const currencies = new Set([target]);
     
-    for (const account of accountsStore.accounts) {
+    for (const account of accountsStore.visibleAccounts) {
       const sourceCurrency = account.currency || target;
       if (sourceCurrency && sourceCurrency !== target) {
         currencies.add(sourceCurrency);
@@ -296,7 +296,7 @@ export const useCurrencyStore = defineStore('currency', () => {
     
     const results = new Map();
     const target = mainCurrency.value;
-    for (const account of accountsStore.accounts) {
+    for (const account of accountsStore.visibleAccounts) {
       const sourceCurrency = account.currency || target;
       const value = convertAmount(account.balance, sourceCurrency, target, {
         requestIfMissing: false
@@ -318,7 +318,7 @@ export const useCurrencyStore = defineStore('currency', () => {
     
     const target = mainCurrency.value;
     const missing = [];
-    for (const account of accountsStore.accounts) {
+    for (const account of accountsStore.visibleAccounts) {
       const sourceCurrency = account.currency || target;
       if (sourceCurrency === target) continue;
       const converted = convertAmount(account.balance, sourceCurrency, target, {
@@ -336,7 +336,7 @@ export const useCurrencyStore = defineStore('currency', () => {
     lastUpdate.value;
     
     const target = mainCurrency.value;
-    for (const account of accountsStore.accounts) {
+    for (const account of accountsStore.visibleAccounts) {
       const sourceCurrency = account.currency || target;
       if (sourceCurrency === target) continue;
       const key = makeRateKey(sourceCurrency, target);
@@ -354,7 +354,7 @@ export const useCurrencyStore = defineStore('currency', () => {
     
     const target = mainCurrency.value;
     let total = 0;
-    for (const account of accountsStore.accounts) {
+    for (const account of accountsStore.visibleAccounts) {
       const amount = Number(account.balance) || 0;
       const sourceCurrency = account.currency || target;
       if (sourceCurrency === target) {
@@ -374,9 +374,9 @@ export const useCurrencyStore = defineStore('currency', () => {
   // Watch for changes in main currency or accounts and fetch needed rates
   // Using watch instead of watchEffect to have more control over reactivity
   watch(
-    [() => mainCurrency.value, () => accountsStore.accounts.map(a => a.currency).join(','), () => hasToken.value],
+    [() => mainCurrency.value, () => accountsStore.visibleAccounts.map((a) => a.currency).join(','), () => hasToken.value],
     () => {
-      if (hasToken.value && accountsStore.accounts.length > 0) {
+      if (hasToken.value && accountsStore.visibleAccounts.length > 0) {
         // Clean expired rates first
         cleanExpiredRates();
         

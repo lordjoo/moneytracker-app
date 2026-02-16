@@ -6,9 +6,12 @@ import TransactionsView from '@/views/TransactionsView.vue';
 import CategoriesView from '@/views/CategoriesView.vue';
 import SettingsView from '@/views/SettingsView.vue';
 import MoreView from '@/views/MoreView.vue';
+import PlanningView from '@/views/PlanningView.vue';
 import OnboardingView from '@/views/OnboardingView.vue';
 import BackupAccountSettings from '@/components/settings/BackupAccountSettings.vue';
 import CurrencySettings from '@/components/settings/CurrencySettings.vue';
+import HouseholdSettings from '@/components/settings/HouseholdSettings.vue';
+import MonthCloseSettings from '@/components/settings/MonthCloseSettings.vue';
 import { usePreferencesStore } from '@/stores/preferences';
 
 const router = createRouter({
@@ -24,6 +27,7 @@ const router = createRouter({
     },
     { path: '/transactions', name: 'transactions', component: TransactionsView },
     { path: '/categories', name: 'categories', component: CategoriesView },
+    { path: '/planning', name: 'planning', component: PlanningView },
     {
       path: '/settings',
       name: 'settings',
@@ -39,6 +43,16 @@ const router = createRouter({
           path: 'currency',
           name: 'settings-currency',
           component: CurrencySettings
+        },
+        {
+          path: 'household',
+          name: 'settings-household',
+          component: HouseholdSettings
+        },
+        {
+          path: 'month-close',
+          name: 'settings-month-close',
+          component: MonthCloseSettings
         }
       ]
     },

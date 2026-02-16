@@ -15,6 +15,15 @@
               <span class="badge badge-sm whitespace-nowrap" :class="badgeClass">
                 {{ transaction.type }}
               </span>
+              <span
+                v-if="transaction.excludeFromInsights"
+                class="badge badge-ghost badge-sm whitespace-nowrap"
+              >
+                Excluded
+              </span>
+              <span v-if="isLockedMonth" class="badge badge-warning badge-sm whitespace-nowrap">
+                Locked month
+              </span>
             </div>
             <div class="flex flex-wrap items-center gap-2 text-xs opacity-60">
               <span class="flex items-center gap-1">
@@ -23,8 +32,8 @@
               </span>
               <span>·</span>
               <span class="flex items-center gap-1">
-                <ClockIcon class="h-3 w-3" />
-                {{ time }}
+                <CalendarDaysIcon class="h-3 w-3" />
+                {{ displayDate }}
               </span>
             </div>
             <p v-if="transaction.note" class="text-sm opacity-70 line-clamp-2">
@@ -54,13 +63,23 @@
             </label>
             <ul tabindex="0" class="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-40 border border-base-300 z-10">
               <li>
-                <button @click="$emit('edit', transaction)" class="text-sm gap-2">
+                <button
+                  @click="$emit('edit', transaction)"
+                  class="text-sm gap-2"
+                  :disabled="!canEdit"
+                  :title="!canEdit ? disabledReason : ''"
+                >
                   <PencilIcon class="h-4 w-4" />
                   Edit
                 </button>
               </li>
               <li>
-                <button @click="$emit('delete', transaction)" class="text-sm gap-2 text-error hover:bg-error hover:text-error-content">
+                <button
+                  @click="$emit('delete', transaction)"
+                  class="text-sm gap-2 text-error hover:bg-error hover:text-error-content"
+                  :disabled="!canDelete"
+                  :title="!canDelete ? disabledReason : ''"
+                >
                   <TrashIcon class="h-4 w-4" />
                   Delete
                 </button>
@@ -74,16 +93,18 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import {
   BanknotesIcon,
-  ClockIcon,
+  CalendarDaysIcon,
   EllipsisVerticalIcon,
   PencilIcon,
   TrashIcon
 } from '@heroicons/vue/24/outline';
+import { parseDateKey } from '@/utils/dates';
 import CategoryIcon from '../CategoryIcon.vue';
 
-defineProps({
+const props = defineProps({
   transaction: {
     type: Object,
     required: true
@@ -97,10 +118,6 @@ defineProps({
     required: true
   },
   accountName: {
-    type: String,
-    required: true
-  },
-  time: {
     type: String,
     required: true
   },
@@ -127,7 +144,31 @@ defineProps({
   textClass: {
     type: String,
     required: true
+  },
+  isLockedMonth: {
+    type: Boolean,
+    default: false
+  },
+  canEdit: {
+    type: Boolean,
+    default: true
+  },
+  canDelete: {
+    type: Boolean,
+    default: true
+  },
+  disabledReason: {
+    type: String,
+    default: 'This transaction is locked.'
   }
+});
+
+const displayDate = computed(() => {
+  const tx = props.transaction ?? {};
+  const dateFromKey = parseDateKey(tx.occurredOn);
+  const date = dateFromKey ?? new Date(tx.occurredAt ?? tx.createdAt ?? Date.now());
+  if (Number.isNaN(date.getTime())) return '--';
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
 });
 
 defineEmits(['edit', 'delete']);

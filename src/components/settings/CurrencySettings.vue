@@ -150,8 +150,8 @@ const currencyStore = useCurrencyStore();
 
 const currencyOptions = currencyList;
 const currencyForm = reactive({
-  mainCurrency: currencyStore.mainCurrency.value,
-  apiToken: currencyStore.apiToken.value
+  mainCurrency: currencyStore.mainCurrency,
+  apiToken: currencyStore.apiToken
 });
 const savingCurrency = ref(false);
 const currencyStatusMessage = ref('');

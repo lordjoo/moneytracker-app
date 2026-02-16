@@ -3,7 +3,7 @@
     <header>
       <h1 class="text-2xl font-semibold">Settings</h1>
       <p class="text-sm opacity-70">
-        Manage backups, account preferences and currency conversions.
+        Manage backups, household roles, monthly close controls, and currency preferences.
       </p>
     </header>
 
@@ -56,6 +56,8 @@ if (!authStore.initialized) {
 
 const tabs = [
   { to: '/settings/backup', label: 'Backup & Account' },
-  { to: '/settings/currency', label: 'Currency' }
+  { to: '/settings/currency', label: 'Currency' },
+  { to: '/settings/household', label: 'Household' },
+  { to: '/settings/month-close', label: 'Month Close' }
 ];
 </script>

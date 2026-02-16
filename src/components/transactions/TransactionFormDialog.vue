@@ -140,6 +140,21 @@
                   ></textarea>
                 </label>
 
+                <label class="label cursor-pointer justify-start gap-3 rounded-lg border border-base-300 p-3">
+                  <input
+                    :checked="Boolean(form.excludeFromInsights)"
+                    @change="$emit('update:form', { ...form, excludeFromInsights: $event.target.checked })"
+                    type="checkbox"
+                    class="checkbox checkbox-sm"
+                  />
+                  <div>
+                    <p class="text-sm font-medium">Exclude from insights</p>
+                    <p class="text-xs opacity-65">
+                      Keeps account balance accurate but removes this transaction from spending reports and budgets.
+                    </p>
+                  </div>
+                </label>
+
                 <!-- Actions -->
                 <div class="flex justify-end gap-2 pt-2">
                   <button type="button" class="btn btn-ghost" @click="$emit('close')">
