@@ -9,7 +9,7 @@
               <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
               </svg>
-              currencyapi.com
+              exchangerate-api.com
             </span>
             <span class="badge badge-info badge-sm gap-1">
               <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -20,7 +20,7 @@
           </div>
         </div>
         <p class="text-sm opacity-70">
-          Choose the main currency for reporting and provide a CurrencyAPI token to enable per-account conversions.
+          Choose the main currency for reporting and provide an ExchangeRate-API key to enable per-account conversions.
         </p>
         <form class="grid gap-4 md:grid-cols-2" @submit.prevent="saveCurrencySettings">
           <label class="form-control">
@@ -32,13 +32,13 @@
             </select>
           </label>
           <label class="form-control">
-            <span class="label-text font-medium">Currency API token</span>
+            <span class="label-text font-medium">ExchangeRate-API key</span>
             <div class="join w-full">
               <input
                 v-model.trim="currencyForm.apiToken"
                 :type="showApiToken ? 'text' : 'password'"
                 class="input input-bordered join-item flex-1 font-mono text-sm"
-                placeholder="Enter CurrencyAPI token"
+                placeholder="Enter ExchangeRate-API key"
               />
               <button
                 type="button"
@@ -78,12 +78,12 @@
                 <p class="opacity-70">
                   Generate a token at
                   <a
-                    href="https://currencyapi.com/"
+                    href="https://www.exchangerate-api.com/"
                     target="_blank"
                     rel="noopener"
                     class="link link-primary font-medium hover:underline"
                   >
-                    currencyapi.com
+                    exchangerate-api.com
                   </a>
                 </p>
                 <p class="flex items-center gap-2">

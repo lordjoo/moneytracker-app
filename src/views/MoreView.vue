@@ -39,6 +39,27 @@
       </RouterLink>
 
       <RouterLink
+        to="/spending/categories"
+        class="card bg-base-100 shadow transition hover:-translate-y-0.5 hover:shadow-lg"
+      >
+        <div class="card-body">
+          <div class="flex items-center gap-3">
+            <div class="rounded-lg bg-error/10 p-3">
+              <ChartPieIcon class="h-6 w-6 text-error" />
+            </div>
+            <div class="flex-1">
+              <h2 class="card-title text-lg">Spending</h2>
+              <p class="text-sm opacity-70">Category breakdowns</p>
+            </div>
+            <ChevronRightIcon class="h-5 w-5 opacity-50" />
+          </div>
+          <p class="text-sm opacity-65">
+            Review spending by category for any month.
+          </p>
+        </div>
+      </RouterLink>
+
+      <RouterLink
         to="/settings"
         class="card bg-base-100 shadow transition hover:-translate-y-0.5 hover:shadow-lg"
       >
@@ -120,10 +141,11 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed } from 'vue';
 import { RouterLink } from 'vue-router';
 import {
   ArrowDownTrayIcon,
+  ChartPieIcon,
   CheckBadgeIcon,
   ChevronRightIcon,
   Cog6ToothIcon,
@@ -135,6 +157,7 @@ import { useBudgetsStore } from '@/stores/budgets';
 import { useRecurringStore } from '@/stores/recurring';
 import { useGoalsStore } from '@/stores/goals';
 import { useAccountsStore } from '@/stores/accounts';
+import { usePwaInstall } from '@/composables/usePwaInstall';
 
 const budgetsStore = useBudgetsStore();
 const recurringStore = useRecurringStore();
@@ -147,15 +170,13 @@ if (!goalsStore.initialized) goalsStore.init();
 if (!accountsStore.initialized) accountsStore.init();
 recurringStore.syncDueItems();
 
-const deferredPrompt = ref(null);
-const isStandalone = ref(false);
+const { canPromptInstall, isStandalone, promptInstall } = usePwaInstall();
 
 const isIos = computed(() => {
   if (typeof navigator === 'undefined') return false;
   return /iphone|ipad|ipod/i.test(navigator.userAgent);
 });
 
-const canPromptInstall = computed(() => Boolean(deferredPrompt.value) && !isStandalone.value);
 const visibleRecurringDueCount = computed(() =>
   recurringStore.dueInstances.filter((instance) => {
     const rule = recurringStore.ruleById(instance.ruleId);
@@ -166,49 +187,4 @@ const visibleRecurringDueCount = computed(() =>
   }).length
 );
 
-function evaluateStandalone() {
-  if (typeof window === 'undefined') return;
-  isStandalone.value = window.matchMedia('(display-mode: standalone)').matches || Boolean(window.navigator.standalone);
-}
-
-function handleBeforeInstallPrompt(event) {
-  event.preventDefault();
-  deferredPrompt.value = event;
-}
-
-function handleAppInstalled() {
-  deferredPrompt.value = null;
-  isStandalone.value = true;
-}
-
-function handleInstallAvailable(event) {
-  deferredPrompt.value = event?.detail?.prompt || deferredPrompt.value;
-}
-
-async function promptInstall() {
-  if (!deferredPrompt.value) return;
-  deferredPrompt.value.prompt();
-  await deferredPrompt.value.userChoice.catch(() => null);
-  deferredPrompt.value = null;
-}
-
-onMounted(() => {
-  evaluateStandalone();
-  if (typeof window === 'undefined') return;
-  if (window.deferredPrompt) {
-    deferredPrompt.value = window.deferredPrompt;
-  }
-  window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-  window.addEventListener('appinstalled', handleAppInstalled);
-  window.addEventListener('pwa-install-available', handleInstallAvailable);
-  window.addEventListener('pwa-installed', handleAppInstalled);
-});
-
-onBeforeUnmount(() => {
-  if (typeof window === 'undefined') return;
-  window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-  window.removeEventListener('appinstalled', handleAppInstalled);
-  window.removeEventListener('pwa-install-available', handleInstallAvailable);
-  window.removeEventListener('pwa-installed', handleAppInstalled);
-});
 </script>

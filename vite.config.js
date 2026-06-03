@@ -36,10 +36,15 @@ export default defineConfig({
         theme_color: '#1d4ed8',
         background_color: '#f8fafc',
         display: 'standalone',
+        display_override: ['standalone', 'minimal-ui'],
         orientation: 'portrait',
         scope: '/',
         start_url: '/',
         id: '/',
+        launch_handler: {
+          client_mode: 'navigate-existing'
+        },
+        prefer_related_applications: false,
         categories: ['finance', 'productivity'],
         icons: [
           {
@@ -122,7 +127,7 @@ export default defineConfig({
         ]
       },
       devOptions: {
-        enabled: false,
+        enabled: true,
         type: 'module'
       }
     })

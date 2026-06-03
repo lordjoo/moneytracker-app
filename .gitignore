@@ -1,8 +1,10 @@
 node_modules
+.pnpm-store
 .dist
 /.idea
 .DS_Store
 .env
+.env.production
 .env.*.local
 .vscode
 coverage

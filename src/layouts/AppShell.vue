@@ -61,6 +61,20 @@
             >
               Pull Cloud
             </button>
+            <button
+              v-if="backupSyncStore.hasConflict"
+              class="btn btn-outline btn-xs"
+              @click="exportLocalBackup"
+            >
+              Export
+            </button>
+            <RouterLink
+              v-if="backupSyncStore.hasConflict"
+              to="/settings/backup"
+              class="btn btn-primary btn-xs"
+            >
+              Resolve
+            </RouterLink>
             <button class="btn btn-ghost btn-xs btn-square" aria-label="Dismiss backup alert" @click="backupSyncStore.dismissBanner()">
               <XMarkIcon class="h-4 w-4" />
             </button>
@@ -160,7 +174,11 @@ const navigation = computed(() => [
     to: '/more',
     label: 'More',
     icon: EllipsisHorizontalCircleIcon,
-    active: route.path.startsWith('/more') || route.path.startsWith('/settings') || route.path.startsWith('/planning')
+    active:
+      route.path.startsWith('/more') ||
+      route.path.startsWith('/settings') ||
+      route.path.startsWith('/planning') ||
+      route.path.startsWith('/spending')
   }
 ]);
 
@@ -176,6 +194,7 @@ const showNetWorthHint = computed(
   () => (currencyStore.accountsMissingConversion || []).length > 0
 );
 const backupAlertClass = computed(() => {
+  if (backupSyncStore.pendingMode === 'conflict') return 'alert-warning';
   if (backupSyncStore.pendingMode === 'pull') return 'alert-info';
   if (backupSyncStore.pendingMode === 'push') return 'alert-accent';
   return 'alert-info';
@@ -265,6 +284,14 @@ async function pullBackup() {
     await backupSyncStore.pullNow();
   } catch (error) {
     console.error('Pull backup from banner failed', error);
+  }
+}
+
+function exportLocalBackup() {
+  try {
+    backupSyncStore.exportLocalBackup();
+  } catch (error) {
+    console.error('Local export from banner failed', error);
   }
 }
 </script>

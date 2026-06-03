@@ -2,6 +2,7 @@ import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { db } from '@/firebase';
 
 export const BACKUP_VERSION = 3;
+export const BACKUP_EXPORT_KIND = 'mymoney.local-backup';
 const LEGACY_BACKUP_DOC_ID = 'latest';
 const MAX_FINGERPRINT_LEN = 64;
 
@@ -95,6 +96,37 @@ export function createBackupPayload({
       reopenedAt: serialiseDate(closure.reopenedAt)
     }))
   };
+}
+
+export function createLocalExport(data, metadata = {}) {
+  return {
+    kind: BACKUP_EXPORT_KIND,
+    version: BACKUP_VERSION,
+    exportedAt: new Date().toISOString(),
+    app: 'MyMoney Tracker',
+    metadata,
+    data: createBackupPayload(data)
+  };
+}
+
+export function downloadLocalExport(data, metadata = {}) {
+  if (typeof document === 'undefined') {
+    throw new Error('Local export is only available in the browser.');
+  }
+  const exportPayload = createLocalExport(data, metadata);
+  const date = new Date().toISOString().slice(0, 10);
+  const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
+    type: 'application/json'
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `mymoney-backup-${date}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  return exportPayload;
 }
 
 function stableStringify(value) {

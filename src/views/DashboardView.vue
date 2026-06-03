@@ -1,5 +1,36 @@
 <template>
   <div class="space-y-6">
+    <section class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+      <div>
+        <h1 class="text-2xl font-semibold">Dashboard</h1>
+        <p class="text-sm opacity-70">{{ currentCycleLabel }}</p>
+      </div>
+      <div class="flex w-full flex-col gap-2 rounded-lg border border-base-300 bg-base-100 p-2 shadow-sm lg:w-auto lg:min-w-[34rem]">
+        <div class="flex items-center justify-between gap-2">
+          <span class="px-2 text-xs font-medium uppercase opacity-60">Period</span>
+          <button class="btn btn-ghost btn-xs" type="button" @click="selectedMonthKey = currentMonthKey">
+            Current
+          </button>
+        </div>
+        <div class="grid grid-cols-[auto_1fr_auto] gap-2">
+          <button class="btn btn-outline btn-square" type="button" aria-label="Previous month" @click="moveSelectedMonth(-1)">
+            <ChevronLeftIcon class="h-5 w-5" />
+          </button>
+          <label class="form-control">
+            <span class="sr-only">Month / Year</span>
+            <select v-model="selectedMonthKey" class="select select-bordered w-full">
+              <option v-for="option in monthOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+          <button class="btn btn-outline btn-square" type="button" aria-label="Next month" @click="moveSelectedMonth(1)">
+            <ChevronRightIcon class="h-5 w-5" />
+          </button>
+        </div>
+      </div>
+    </section>
+
     <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <article class="card bg-base-100 shadow">
         <div class="card-body">
@@ -13,6 +44,7 @@
           <h2 class="card-title">Spent This Month</h2>
           <p class="text-3xl font-semibold text-error">{{ formatCurrency(currentMonth.spent) }}</p>
           <p :class="currentMonth.deltaClass">{{ currentMonth.deltaLabel }}</p>
+          <p class="text-xs opacity-70">{{ currentCycleLabel }}</p>
           <p v-if="currentMonth.pending" class="text-xs opacity-60">Waiting for exchange rates…</p>
         </div>
       </article>
@@ -20,7 +52,8 @@
         <div class="card-body">
           <h2 class="card-title">Saved This Month</h2>
           <p class="text-3xl font-semibold text-success">{{ formatCurrency(currentMonth.saved) }}</p>
-          <p class="text-xs opacity-70">Inflow minus outflow</p>
+          <p class="text-xs opacity-70">Previous month: {{ formatCurrency(previousMonth.saved) }}</p>
+          <p :class="savedDeltaClass">{{ savedDeltaLabel }}</p>
         </div>
       </article>
     </section>
@@ -114,7 +147,7 @@
         <div class="card-body gap-4">
           <div class="flex items-center justify-between">
             <h2 class="card-title">Top Spending Categories</h2>
-            <RouterLink to="/categories" class="link text-xs">Manage categories</RouterLink>
+            <RouterLink :to="{ name: 'spending-categories', query: { month: selectedMonthKey } }" class="link text-xs">View report</RouterLink>
           </div>
           <ul class="space-y-3">
             <li v-for="category in topSpendingCategories.categories" :key="category.id" class="space-y-1">
@@ -168,7 +201,8 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { useAccountsStore } from '@/stores/accounts';
 import { useTransactionsStore } from '@/stores/transactions';
 import { useCategoriesStore } from '@/stores/categories';
@@ -176,8 +210,9 @@ import { useCurrencyStore } from '@/stores/currency';
 import { useBudgetsStore } from '@/stores/budgets';
 import { useRecurringStore } from '@/stores/recurring';
 import { useGoalsStore } from '@/stores/goals';
-import { toMonthKey } from '@/utils/dates';
 import { RouterLink } from 'vue-router';
+import { shiftMonthKey } from '@/utils/dates';
+import { useSpendingInsights } from '@/composables/useSpendingInsights';
 import CategoryIcon from '@/components/CategoryIcon.vue';
 
 const accountsStore = useAccountsStore();
@@ -205,9 +240,28 @@ if (!recurringStore.initialized) {
 if (!goalsStore.initialized) {
   goalsStore.init();
 }
-
 const currencyStore = useCurrencyStore();
 recurringStore.syncDueItems();
+const {
+  currentMonthKey,
+  buildMonthOptions,
+  summarizeCycle,
+  formatCycleLabel,
+  convertAmountForAccount
+} = useSpendingInsights();
+
+const selectedMonthKey = ref(currentMonthKey.value);
+const monthOptions = computed(() => buildMonthOptions(24));
+const currentCycleStats = computed(() => summarizeCycle(transactionsStore.transactions, selectedMonthKey.value));
+const previousMonthKey = computed(() => shiftMonthKey(selectedMonthKey.value, -1));
+const previousCycleStats = computed(() => summarizeCycle(transactionsStore.transactions, previousMonthKey.value));
+const currentCycleLabel = computed(() => formatCycleLabel(currentCycleStats.value.bounds));
+
+watch(currentMonthKey, (next) => {
+  if (!selectedMonthKey.value) {
+    selectedMonthKey.value = next;
+  }
+});
 
 const totalWorth = computed(() => {
   const target = currencyStore.mainCurrency;
@@ -229,7 +283,7 @@ const totalWorth = computed(() => {
   return total;
 });
 const planningSnapshot = computed(() => {
-  const budgetSummaries = budgetsStore.getMonthlySummary(toMonthKey(new Date()));
+  const budgetSummaries = budgetsStore.getMonthlySummary(selectedMonthKey.value);
   const budgetCount = budgetSummaries.length;
   const overBudgetCount = budgetSummaries.filter((entry) => entry.remaining < 0).length;
   const totalUsage = budgetSummaries.reduce((sum, entry) => sum + entry.usagePercent, 0);
@@ -260,112 +314,42 @@ const visibleRecurringDueInstances = computed(() =>
 );
 const visibleRecurringDueCount = computed(() => visibleRecurringDueInstances.value.length);
 
-function convertAmountForAccount(amount, account) {
-  const baseCurrency = currencyStore.mainCurrency;
-  const sourceCurrency = account?.currency || baseCurrency;
-  const converted = currencyStore.convertAmount(amount, sourceCurrency, baseCurrency, {
-    requestIfMissing: true
-  });
-  if (converted === null && sourceCurrency !== baseCurrency) {
-    return { value: 0, pending: true };
-  }
-  const fallback = Number(amount) || 0;
-  return { value: (converted ?? fallback), pending: false };
-}
-
 const currentMonth = computed(() => {
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-
-  let spent = 0;
-  let saved = 0;
-  let prevSpent = 0;
-  let pending = false;
-
-  for (const tx of transactionsStore.transactions) {
-    if (tx.excludeFromInsights) continue;
-    const account = accountsStore.visibleAccountById(tx.accountId);
-    if (!account || account.isClosed) continue;
-    const date = tx.occurredAt ?? tx.createdAt ?? new Date();
-    const amount = Number(tx.amount) || 0;
-    const isExpense = tx.type === 'debit' || (tx.type === 'transfer' && tx.direction === 'outgoing');
-    const isIncome = tx.type === 'credit' || (tx.type === 'transfer' && tx.direction === 'incoming');
-    const conversion = convertAmountForAccount(amount, account);
-    if (conversion.pending) {
-      pending = true;
-      continue;
-    }
-
-    if (date >= startOfMonth) {
-      if (isExpense) spent += conversion.value;
-      if (isIncome) saved += conversion.value;
-    } else if (date >= startOfPrevMonth && date <= endOfPrevMonth) {
-      if (isExpense) prevSpent += conversion.value;
-    }
-  }
-
-  const delta = spent - prevSpent;
-  const deltaLabel = prevSpent
-    ? `${delta >= 0 ? '▲' : '▼'} ${Math.abs((delta / prevSpent) * 100).toFixed(1)}% vs last month`
+  const current = currentCycleStats.value;
+  const previous = previousCycleStats.value;
+  const delta = current.spent - previous.spent;
+  const deltaLabel = previous.spent
+    ? `${delta >= 0 ? '▲' : '▼'} ${Math.abs((delta / previous.spent) * 100).toFixed(1)}% vs last month`
     : 'First month of tracking';
   const deltaClass = delta >= 0 ? 'text-error text-xs' : 'text-success text-xs';
 
   return {
-    spent,
-    saved: Math.max(saved - spent, 0),
+    spent: current.spent,
+    saved: current.saved,
     deltaLabel,
     deltaClass,
-    pending
+    pending: current.pending
   };
 });
 
+const previousMonth = computed(() => previousCycleStats.value);
+
+const savedDelta = computed(() => currentMonth.value.saved - previousMonth.value.saved);
+const savedDeltaLabel = computed(() => {
+  if (!previousMonth.value.saved) return 'First month of savings data';
+  const direction = savedDelta.value >= 0 ? '▲' : '▼';
+  return `${direction} ${Math.abs((savedDelta.value / previousMonth.value.saved) * 100).toFixed(1)}% vs last month`;
+});
+const savedDeltaClass = computed(() =>
+  savedDelta.value >= 0 ? 'text-success text-xs' : 'text-error text-xs'
+);
+
 const topSpendingCategories = computed(() => {
-  const totals = new Map();
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  let pending = false;
-
-  for (const tx of transactionsStore.transactions) {
-    if (tx.excludeFromInsights) continue;
-    const account = accountsStore.visibleAccountById(tx.accountId);
-    if (!account || account.isClosed) continue;
-    const date = tx.occurredAt ?? tx.createdAt ?? new Date();
-    if (date < startOfMonth) continue;
-    const isExpense = tx.type === 'debit' || (tx.type === 'transfer' && tx.direction === 'outgoing');
-    if (!isExpense) continue;
-    const key = tx.categoryId ?? 'uncategorized';
-    const amount = Number(tx.amount) || 0;
-    const conversion = convertAmountForAccount(amount, account);
-    if (conversion.pending) {
-      pending = true;
-      continue;
-    }
-    totals.set(key, (totals.get(key) ?? 0) + conversion.value);
-  }
-
-  const entries = Array.from(totals.entries())
-    .map(([categoryId, total]) => {
-      const category = categoriesStore.byId(categoryId) ?? { name: 'Uncategorized', icon: '' };
-      return {
-        id: categoryId,
-        name: category.name,
-        icon: category.icon,
-        total
-      };
-    })
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 5);
-
-  const max = entries[0]?.total ?? 1;
+  const entries = currentCycleStats.value.categories.slice(0, 5);
 
   return {
-    pending,
-    categories: entries.map((entry) => ({
-      ...entry,
-      percentage: Math.round((entry.total / max) * 100)
-    }))
+    pending: currentCycleStats.value.pending,
+    categories: entries
   };
 });
 
@@ -435,6 +419,10 @@ function txSign(tx) {
 
 function txClass(tx) {
   return txSign(tx) > 0 ? 'text-success font-medium' : 'text-error font-medium';
+}
+
+function moveSelectedMonth(delta) {
+  selectedMonthKey.value = shiftMonthKey(selectedMonthKey.value, delta);
 }
 
 async function postAllDue() {

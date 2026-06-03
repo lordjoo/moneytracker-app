@@ -83,7 +83,7 @@
                   </label>
                   <div class="form-control w-full gap-2">
                     <span class="label-text">Icon</span>
-                    <div class="grid grid-cols-5 gap-2">
+                    <div class="grid max-h-56 grid-cols-5 gap-2 overflow-y-auto rounded-lg border border-base-300 p-2 sm:grid-cols-6">
                       <button
                         v-for="option in iconOptions"
                         :key="option.value"

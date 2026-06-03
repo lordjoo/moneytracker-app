@@ -3,6 +3,7 @@ import { generateId, parseDate, readJson, writeJson } from '@/utils/storage';
 import {
   computeBackupFingerprint,
   createBackupPayload,
+  downloadLocalExport,
   downloadBackup,
   getBackupMetadata,
   uploadBackup
@@ -80,7 +81,11 @@ export const useBackupSyncStore = defineStore('backupSync', {
       if (local) return remote !== local;
       return true;
     },
+    hasConflict() {
+      return this.hasLocalChanges && this.hasRemoteChanges;
+    },
     pendingMode() {
+      if (this.hasConflict) return 'conflict';
       if (this.hasLocalChanges) return 'push';
       if (this.hasRemoteChanges) return 'pull';
       return 'clean';
@@ -93,13 +98,13 @@ export const useBackupSyncStore = defineStore('backupSync', {
     },
     bannerMessage() {
       if (this.pendingMode === 'push') {
-        if (this.hasRemoteChanges) {
-          const remoteAt = formatDateTime(this.remoteUpdatedAt);
-          return remoteAt
-            ? `Local changes detected. Push to backup (this will replace cloud changes from ${remoteAt}).`
-            : 'Local changes detected. Push to backup (this will replace cloud changes).';
-        }
         return 'You have local changes not yet backed up.';
+      }
+      if (this.pendingMode === 'conflict') {
+        const remoteAt = formatDateTime(this.remoteUpdatedAt);
+        return remoteAt
+          ? `Local and cloud data both changed. Export a local copy, then choose which version to keep (${remoteAt}).`
+          : 'Local and cloud data both changed. Export a local copy, then choose which version to keep.';
       }
       if (this.pendingMode === 'pull') {
         const remoteAt = formatDateTime(this.remoteUpdatedAt);
@@ -208,6 +213,15 @@ export const useBackupSyncStore = defineStore('backupSync', {
       const snapshot = createBackupPayload(this.collectBackupData());
       return computeBackupFingerprint(snapshot);
     },
+    exportLocalBackup() {
+      return downloadLocalExport(this.collectBackupData(), {
+        deviceId: this.ensureDeviceId(),
+        baseFingerprint: this.baseFingerprint,
+        localFingerprint: this.localFingerprint || this.getLocalFingerprint(),
+        remoteFingerprint: this.remoteFingerprint,
+        remoteUpdatedAt: this.remoteUpdatedAt ? this.remoteUpdatedAt.toISOString() : null
+      });
+    },
     evaluateState() {
       if (this.pendingMode === 'clean') {
         this.dismissedBannerKey = '';
@@ -288,7 +302,7 @@ export const useBackupSyncStore = defineStore('backupSync', {
       }
       await this.checkRemoteMetadata({ force: true });
     },
-    async pushNow() {
+    async pushNow({ force = false } = {}) {
       const authStore = useAuthStore();
       const preferencesStore = usePreferencesStore();
       if (!preferencesStore.initialized) preferencesStore.init();
@@ -299,6 +313,10 @@ export const useBackupSyncStore = defineStore('backupSync', {
       this.status = 'pushing';
       this.lastError = '';
       try {
+        await this.checkRemoteMetadata({ force: true });
+        if (!force && this.hasConflict) {
+          throw new Error('Cloud backup changed since your last sync. Export local data first, then pull cloud or force push from Settings.');
+        }
         const data = this.collectBackupData();
         const payload = createBackupPayload(data);
         const fingerprint = computeBackupFingerprint(payload);
@@ -320,7 +338,7 @@ export const useBackupSyncStore = defineStore('backupSync', {
         this.evaluateState();
       }
     },
-    async pullNow() {
+    async pullNow({ force = false } = {}) {
       const authStore = useAuthStore();
       const preferencesStore = usePreferencesStore();
       if (!preferencesStore.initialized) preferencesStore.init();
@@ -331,6 +349,9 @@ export const useBackupSyncStore = defineStore('backupSync', {
       this.status = 'pulling';
       this.lastError = '';
       try {
+        if (!force && this.hasConflict) {
+          throw new Error('Local changes would be replaced. Export local data first, then pull cloud from Settings.');
+        }
         const snapshot = await downloadBackup(authStore.user.uid);
         if (!snapshot) {
           throw new Error('No cloud backup found.');

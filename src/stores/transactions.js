@@ -1,12 +1,13 @@
 import { defineStore } from 'pinia';
 import { generateId, parseDate, readJson, writeJson } from '@/utils/storage';
-import { coerceDateKey, getDateOrFallback, parseDateKey, toDateKey } from '@/utils/dates';
+import { coerceDateKey, getDateOrFallback, parseDateKey, shiftMonthKey, toCycleMonthKey, toDateKey } from '@/utils/dates';
 import { notifyBackupDirty } from '@/utils/backupDirtySignal';
 import { useAccountsStore } from './accounts';
 import { useCategoriesStore } from './categories';
 import { useCurrencyStore } from './currency';
 import { useHouseholdStore } from './household';
 import { useMonthClosuresStore } from './monthClosures';
+import { usePreferencesStore } from './preferences';
 
 const STORAGE_KEY = 'transactions';
 
@@ -157,10 +158,14 @@ export const useTransactionsStore = defineStore('transactions', {
     },
     monthlySummary: (state) => {
       const accountsStore = useAccountsStore();
+      const preferencesStore = usePreferencesStore();
+      if (!preferencesStore.initialized) {
+        preferencesStore.init();
+      }
+      const cycleStartDay = preferencesStore.cycleStartDay;
       const now = new Date();
-      const currentMonthKey = `${now.getFullYear()}-${now.getMonth() + 1}`;
-      const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const prevMonthKey = `${prevDate.getFullYear()}-${prevDate.getMonth() + 1}`;
+      const currentMonthKey = toCycleMonthKey(now, cycleStartDay);
+      const prevMonthKey = shiftMonthKey(currentMonthKey, -1);
 
       const summary = {
         [currentMonthKey]: { credit: 0, debit: 0 },
@@ -171,7 +176,7 @@ export const useTransactionsStore = defineStore('transactions', {
         if (!accountsStore.isAccountVisible(tx.accountId)) continue;
         if (tx.excludeFromInsights) continue;
         const occurred = resolveOccurredDate(tx);
-        const key = `${occurred.getFullYear()}-${occurred.getMonth() + 1}`;
+        const key = toCycleMonthKey(occurred, cycleStartDay);
         if (!summary[key]) {
           summary[key] = { credit: 0, debit: 0 };
         }
@@ -318,8 +323,7 @@ export const useTransactionsStore = defineStore('transactions', {
           if (converted !== null) {
             convertedAmount = converted;
           } else {
-            // If conversion fails, warn the user but proceed with same amount
-            console.warn(`Could not convert ${value} from ${sourceCurrency} to ${destinationCurrency}. Using same amount.`);
+            throw new Error(`Currency rate for ${sourceCurrency} to ${destinationCurrency} is still loading. Try again in a moment.`);
           }
         }
 

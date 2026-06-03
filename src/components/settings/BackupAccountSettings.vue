@@ -24,9 +24,12 @@
           <span>Sign in to enable cloud backups.</span>
         </div>
         <div class="flex flex-wrap gap-2">
+          <button class="btn btn-outline" @click="exportLocalData">
+            Export local JSON
+          </button>
           <button
             class="btn btn-primary"
-            :disabled="!authStore.isAuthenticated || backupSyncStore.status === 'pushing' || backupSyncStore.status === 'pulling'"
+            :disabled="!authStore.isAuthenticated || backupSyncStore.hasConflict || backupSyncStore.status === 'pushing' || backupSyncStore.status === 'pulling'"
             :class="{ loading: backupSyncStore.status === 'pushing' }"
             @click="backupNow"
           >
@@ -34,12 +37,26 @@
           </button>
           <button
             class="btn btn-outline"
-            :disabled="!authStore.isAuthenticated || backupSyncStore.status === 'pushing' || backupSyncStore.status === 'pulling'"
+            :disabled="!authStore.isAuthenticated || backupSyncStore.hasConflict || backupSyncStore.status === 'pushing' || backupSyncStore.status === 'pulling'"
             :class="{ loading: backupSyncStore.status === 'pulling' }"
             @click="restoreNow"
           >
             Pull from Firebase
           </button>
+        </div>
+        <div v-if="backupSyncStore.hasConflict" class="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+          <p class="font-medium text-warning-content">Sync conflict detected</p>
+          <p class="mt-1 opacity-80">
+            Local data and Firebase both changed. Export a local JSON backup before replacing either side.
+          </p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button class="btn btn-warning btn-sm" @click="forceBackupNow">
+              Force push local
+            </button>
+            <button class="btn btn-outline btn-sm" @click="forceRestoreNow">
+              Replace local with cloud
+            </button>
+          </div>
         </div>
         <p v-if="authStore.isAuthenticated" class="text-xs opacity-70">
           Cloud checks are metadata-only and run periodically to reduce Firestore reads.
@@ -52,7 +69,7 @@
       <div class="card-body space-y-4">
         <h2 class="card-title">Account</h2>
         <p class="text-sm opacity-70">
-          Backups are stored against your Google account. You can sign out anytime; local data stays on this device.
+          Backups are stored against your signed-in account. You can sign out anytime; local data stays on this device.
         </p>
         <div v-if="authStore.isAuthenticated" class="flex items-center gap-3 rounded-lg border border-base-300 p-3">
           <img
@@ -67,11 +84,34 @@
           </div>
           <button class="btn btn-ghost btn-sm" @click="signOut">Sign out</button>
         </div>
-        <div v-else class="space-y-3">
-          <p class="text-sm">Connect with Google to enable backup and restore.</p>
+        <div v-else class="space-y-4">
+          <form class="space-y-3" @submit.prevent="sendPasswordlessLink">
+            <label class="form-control">
+              <span class="label-text">Email address</span>
+              <input
+                v-model.trim="emailForm.email"
+                type="email"
+                autocomplete="email"
+                class="input input-bordered"
+                required
+              />
+            </label>
+            <div class="flex flex-wrap gap-2">
+              <button type="submit" class="btn btn-primary" :class="{ loading: isAuthenticating }">
+                Send sign-in link
+              </button>
+            </div>
+            <p class="text-xs opacity-70">
+              Open the link from your email on this device to finish signing in.
+            </p>
+          </form>
+          <div class="divider text-xs">or</div>
           <button class="btn btn-primary" :class="{ loading: isAuthenticating }" @click="signIn">
             Continue with Google
           </button>
+          <p v-if="authStore.lastError && !statusMessage" class="text-xs text-error">
+            {{ authStore.lastError }}
+          </p>
         </div>
       </div>
     </article>
@@ -124,6 +164,9 @@ backupSyncStore.init();
 const statusMessage = ref('');
 const statusKind = ref('info');
 const fallbackAvatar = ref(makeFallbackAvatar(authStore.displayName));
+const emailForm = ref({
+  email: ''
+});
 
 const lastBackupLabel = computed(() => formatTimestamp(preferencesStore.lastBackupDate));
 const lastRestoreLabel = computed(() => formatTimestamp(preferencesStore.lastRestoreDate));
@@ -178,7 +221,7 @@ function handleAvatarError(event) {
 async function signIn() {
   console.log('[BackupSettings] Sign-in button clicked');
   try {
-    setStatus('info', 'Initiating sign-in...');
+    setStatus('info', 'Redirecting to Google...');
     await authStore.signIn();
     console.log('[BackupSettings] Sign-in successful');
     fallbackAvatar.value = makeFallbackAvatar(authStore.displayName);
@@ -186,13 +229,8 @@ async function signIn() {
   } catch (error) {
     console.error('[BackupSettings] Sign-in error:', error);
     
-    // Provide user-friendly error messages
     let errorMessage = 'Failed to sign in';
-    if (error.code === 'auth/popup-blocked') {
-      errorMessage = 'Popup was blocked. Please allow popups for this site and try again.';
-    } else if (error.code === 'auth/popup-closed-by-user') {
-      errorMessage = 'Sign-in cancelled. Please try again when ready.';
-    } else if (error.code === 'auth/unauthorized-domain') {
+    if (error.code === 'auth/unauthorized-domain') {
       errorMessage = 'This domain is not authorized for Google sign-in. Please check Firebase console settings.';
     } else if (error.code === 'auth/operation-not-allowed') {
       errorMessage = 'Google sign-in is not enabled. Please check Firebase console settings.';
@@ -203,6 +241,32 @@ async function signIn() {
     }
     
     setStatus('error', `${errorMessage} (Code: ${error.code || 'unknown'})`);
+  }
+}
+
+function authErrorMessage(error) {
+  if (error?.code === 'auth/missing-email') return 'Enter your email address.';
+  if (error?.code === 'auth/invalid-email') return 'Enter a valid email address.';
+  if (error?.code === 'auth/user-disabled') return 'This account has been disabled.';
+  if (error?.code === 'auth/operation-not-allowed') return 'Enable Email link sign-in in Firebase Authentication.';
+  if (error?.code === 'auth/unauthorized-domain') return 'Authorize this domain in Firebase Authentication settings.';
+  if (error?.code === 'auth/network-request-failed') return 'Network error. Please check your connection and try again.';
+  if (error?.code === 'auth/too-many-requests') return 'Too many attempts. Please wait a bit and try again.';
+  return error?.message ?? 'Authentication failed.';
+}
+
+async function sendPasswordlessLink() {
+  if (!emailForm.value.email) {
+    setStatus('error', 'Enter your email address first.');
+    return;
+  }
+  try {
+    setStatus('info', 'Sending sign-in link...');
+    await authStore.sendEmailLink(emailForm.value.email);
+    setStatus('success', 'Sign-in link sent. Open it from your email to finish signing in.');
+  } catch (error) {
+    console.error(error);
+    setStatus('error', authErrorMessage(error));
   }
 }
 
@@ -218,7 +282,7 @@ async function signOut() {
 
 async function backupNow() {
   if (!authStore.user) {
-    setStatus('error', 'Sign in with Google to create backups.');
+    setStatus('error', 'Sign in to create backups.');
     return;
   }
   try {
@@ -231,9 +295,37 @@ async function backupNow() {
   }
 }
 
+function exportLocalData() {
+  try {
+    const payload = backupSyncStore.exportLocalBackup();
+    setStatus('success', `Exported ${payload.data.transactions.length} transactions to a local JSON file.`);
+  } catch (error) {
+    console.error(error);
+    setStatus('error', error.message ?? 'Export failed.');
+  }
+}
+
+async function forceBackupNow() {
+  if (!authStore.user) {
+    setStatus('error', 'Sign in to create backups.');
+    return;
+  }
+  if (!confirm('Force push local data to Firebase? This replaces the current cloud backup.')) {
+    return;
+  }
+  try {
+    setStatus('info', 'Replacing cloud backup with local data...');
+    await backupSyncStore.pushNow({ force: true });
+    setStatus('success', 'Local data replaced the Firebase backup.');
+  } catch (error) {
+    console.error(error);
+    setStatus('error', error.message ?? 'Force push failed.');
+  }
+}
+
 async function restoreNow() {
   if (!authStore.user) {
-    setStatus('error', 'Sign in with Google to restore backups.');
+    setStatus('error', 'Sign in to restore backups.');
     return;
   }
   if (!confirm('Restore from cloud backup? Local data will be replaced.')) {
@@ -246,6 +338,24 @@ async function restoreNow() {
   } catch (error) {
     console.error(error);
     setStatus('error', error.message ?? 'Pull failed.');
+  }
+}
+
+async function forceRestoreNow() {
+  if (!authStore.user) {
+    setStatus('error', 'Sign in to restore backups.');
+    return;
+  }
+  if (!confirm('Replace local data with Firebase backup? Export local JSON first if you need a copy.')) {
+    return;
+  }
+  try {
+    setStatus('info', 'Replacing local data with cloud backup...');
+    await backupSyncStore.pullNow({ force: true });
+    setStatus('success', 'Cloud backup replaced local data.');
+  } catch (error) {
+    console.error(error);
+    setStatus('error', error.message ?? 'Force pull failed.');
   }
 }
 </script>

@@ -33,7 +33,7 @@ function setupStores() {
   const budgetsStore = useBudgetsStore();
   budgetsStore.init();
 
-  return { accountsStore, transactionsStore, budgetsStore };
+  return { preferencesStore, accountsStore, transactionsStore, budgetsStore };
 }
 
 describe('budgets store', () => {
@@ -131,5 +131,51 @@ describe('budgets store', () => {
     const summary = budgetsStore.getMonthlySummary('2026-02')[0];
     expect(summary.spent).toBe(25);
     expect(summary.remaining).toBe(75);
+  });
+
+  it('uses the configured month start day for budget consumption', () => {
+    const { preferencesStore, accountsStore, transactionsStore, budgetsStore } = setupStores();
+    preferencesStore.setMonthStartDay(25);
+    const accountId = accountsStore.createAccount({ name: 'Wallet', currency: 'USD' });
+
+    transactionsStore.addTransaction({
+      type: 'debit',
+      accountId,
+      amount: 40,
+      categoryId: 'food-dining',
+      occurredAt: '2026-03-24'
+    });
+    transactionsStore.addTransaction({
+      type: 'debit',
+      accountId,
+      amount: 50,
+      categoryId: 'food-dining',
+      occurredAt: '2026-03-25'
+    });
+    transactionsStore.addTransaction({
+      type: 'debit',
+      accountId,
+      amount: 60,
+      categoryId: 'food-dining',
+      occurredAt: '2026-04-24'
+    });
+    transactionsStore.addTransaction({
+      type: 'debit',
+      accountId,
+      amount: 70,
+      categoryId: 'food-dining',
+      occurredAt: '2026-04-25'
+    });
+
+    budgetsStore.upsertBudget({
+      categoryId: 'food-dining',
+      amount: 200,
+      rolloverEnabled: false,
+      alertThresholds: [80, 100, 120]
+    });
+
+    const summary = budgetsStore.getMonthlySummary('2026-03')[0];
+    expect(summary.spent).toBe(110);
+    expect(summary.remaining).toBe(90);
   });
 });

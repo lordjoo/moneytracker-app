@@ -1,3 +1,5 @@
+import { markPwaInstalled, setPwaInstallPrompt } from '@/composables/usePwaInstall';
+
 export function registerSW() {
   import('virtual:pwa-register').then(({ registerSW }) => {
     const updateSW = registerSW({
@@ -31,6 +33,7 @@ export function registerSW() {
 
 function emitInstallAvailability(promptEvent = null) {
   if (typeof window === 'undefined') return;
+  setPwaInstallPrompt(promptEvent);
   window.dispatchEvent(
     new CustomEvent('pwa-install-available', {
       detail: {
@@ -54,6 +57,7 @@ if (typeof window !== 'undefined') {
   window.addEventListener('appinstalled', () => {
     console.log('[PWA] App installed successfully');
     window.deferredPrompt = null;
+    markPwaInstalled();
     window.dispatchEvent(new CustomEvent('pwa-installed'));
   });
 

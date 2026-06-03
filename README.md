@@ -1,88 +1,88 @@
 # MyMoney Tracker
 
-A mobile-first Progressive Web App built with Vue 3, Pinia, and Firebase for tracking spending, savings, and transfers across multiple accounts. Tailwind CSS + DaisyUI provide rapid styling, while Headless UI powers accessible overlays. Firestore persists accounts, transactions, and category metadata; Google Sign-In handles authentication.
+MyMoney Tracker is a local-first Vue 3 PWA for tracking accounts, spending, transfers, budgets, recurring items, goals, and household money rules. Data lives in browser storage first. Firebase Authentication and Firestore provide optional account sign-in and whole-app backup sync.
 
 ## Features
 
-- 📱 **Mobile-first** layout with responsive navigation and bottom action bar.
-- 🔐 **Google Sign-In** via Firebase Authentication; per-user Firestore data isolation.
-- 🧾 **Accounts & cycles**: create multiple accounts with opening balance auto-transaction, editable names/cycles, and safe closing when finished.
-- 💸 **Transactions**: credit, debit, and transfer flows update account balances atomically using Firestore transactions.
-- 🗂️ **Categories**: default income/expense categories with CRUD management and customizable icons (preset library or emoji).
-- 📊 **Dashboard insights**: total net worth, monthly spend vs. last month, savings delta, top spending categories, and recent activity.
-- 🔄 **Background sync + offline** thanks to Firestore polling (no long-lived listeners), queued writes, and the PWA service worker.
+- Mobile-first PWA with install prompts, offline service worker caching, and real 64/180/192/512px app icons.
+- Firebase Authentication with passwordless email links and Google sign-in.
+- Manual Firebase backup sync with metadata checks, conflict detection, and explicit force actions.
+- Local JSON export from Settings so users can keep a device-owned copy before cloud operations.
+- Accounts, categories, transactions, recurring rules, budgets, goals, household roles, and month close controls.
+- Currency conversion via ExchangeRate-API latest rates, using a user-provided API key stored locally.
 
 ## Getting Started
 
-1. **Install dependencies**
+1. Install dependencies:
+
    ```bash
    npm install
    ```
 
-2. **Configure Firebase**
-   - Create a Firebase project with Authentication (Google provider) and Firestore enabled.
-   - Copy `.env.example` to `.env` and populate the `VITE_FIREBASE_*` values from the Firebase console.
+2. Configure Firebase:
 
-3. **Run locally**
+   ```bash
+   cp .env.example .env
+   ```
+
+   Fill the `VITE_FIREBASE_*` values from your Firebase web app. Enable Firestore, Google sign-in, and Email link sign-in in Firebase Authentication.
+
+3. Run locally:
+
    ```bash
    npm run dev
    ```
-   Vite will print a local development URL. Open it in a browser, sign in with Google, and start adding accounts.
 
-4. **Build for production**
+4. Build and preview production output:
+
    ```bash
    npm run build
    npm run preview
    ```
 
-## Project Structure
+## Scripts
 
-```
+- `npm run dev` starts Vite.
+- `npm run lint` runs ESLint.
+- `npm run test` runs Vitest store and utility tests.
+- `npm run build` builds the production PWA and service worker.
+
+## Project Map
+
+```text
 src/
-  firebase.js          # Firebase initialization + auth helpers
-  main.js              # Vite entry: mounts app, registers PWA
-  pwa.js               # Service worker registration helper
-  layouts/AppShell.vue # Application shell with navigation + theme toggle
-  router/index.js      # Route definitions + auth guard
-  stores/              # Pinia stores: auth, accounts, transactions, categories
-  views/               # Feature views (Dashboard, Accounts, Transactions, etc.)
-  styles.css           # Tailwind entry file
-public/
-  icons/               # Placeholder PWA icons (replace with branded artwork)
+  firebase.js                  Firebase app, Auth, Firestore, and sign-in helpers
+  pwa.js                       Service worker registration and install prompt events
+  layouts/AppShell.vue         Shared navigation, theme, sync banner
+  stores/                      Pinia stores for app domains
+  utils/backupService.js       Firebase backup payloads, fingerprints, local export
+  views/                       Route-level screens
+  components/settings/         Backup, currency, household, and month settings
+public/icons/                  PWA icon assets used by the manifest
 ```
 
-## Firebase Data Model
+## Sync Model
 
-_All documents live under `users/{uid}/...` to ensure per-user isolation._
+The app is local-first. Store changes are written to browser storage immediately and marked dirty. Firebase sync is a manual backup flow:
 
-- `accounts/{accountId}`: `{ name, balance, cycleDay, isClosed, closedAt, createdAt, updatedAt }`
-- `transactions/{transactionId}`: `{ type, direction?, accountId, counterpartyAccountId?, amount, categoryId, note, occurredAt, createdAt, updatedAt }`
-- `categories/{categoryId}`: `{ name, type ('income' | 'expense'), icon, createdAt, updatedAt }`
+- `Push to Firebase` uploads the full local backup.
+- `Pull from Firebase` replaces local data with the cloud backup.
+- If local and cloud fingerprints both changed, normal push/pull is blocked.
+- In a conflict, export local JSON first, then use the explicit force action in Settings.
 
-Opening balances are stored as `type: 'credit', subtype: 'opening-balance'` transactions for auditing.
+## Currency Conversion
 
-## Theming & Styling
+Currency settings live in the app under `Settings -> Currency`. The app calls:
 
-- Tailwind CSS 3.4 with DaisyUI theme `mymoney` plus light/dark fallbacks.
-- Theme toggle switches between custom theme and dark mode by mutating `data-theme` (DaisyUI convention).
-- Headless UI dialogs deliver accessible modals for account, transaction, and category forms.
+```text
+https://v6.exchangerate-api.com/v6/{key}/latest/USD
+```
 
-## Offline & PWA Notes
+Rates are cached in browser storage for one hour.
 
-- Firestore IndexedDB persistence caches data locally; writes enqueue while offline and sync automatically when reconnected.
-- Background polling (15s for accounts/transactions, 30s for categories) replaces realtime listeners to avoid WebChannel errors.
-- UI surfaces offline/queued states so you know when balances or transactions are still syncing.
-- Configured via `vite-plugin-pwa` with auto-updating service worker.
-- Replace placeholder icons in `public/icons/` with 64/192/512px PNGs.
-- When testing in development, install prompts require HTTPS or localhost.
+## Contributing
 
-## Next Steps
-
-- Configure Firestore security rules to scope reads/writes to the authenticated user ID.
-- Add unit tests (e.g., Vitest + Vue Test Utils) for store logic, especially transaction balancing.
-- Extend dashboards with charts (e.g., Chart.js) for spend/savings visualisations.
-- Add sync error handling/notifications for rare Firestore rejection cases.
-- Optionally create composite indexes (e.g., `transactions` ordered by `occurredAt/createdAt`) once data volume grows.
+Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a PR. The short version: keep changes focused, add tests for store/data behavior, run lint/test/build, and avoid adding generated backup files or large rewrites that are not tied to a bug or feature.
 
 ## License
 

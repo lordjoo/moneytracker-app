@@ -53,14 +53,14 @@ describe('recurring store', () => {
       amount: 25,
       frequency: 'monthly',
       dayOfMonth: 10,
-      nextRunOn: '2026-02-10'
+      nextRunOn: '2099-02-10'
     });
 
-    recurringStore.syncDueItems('2026-02-15');
+    recurringStore.syncDueItems('2099-02-15');
 
     expect(recurringStore.dueCount).toBe(1);
-    expect(recurringStore.dueInstances[0].dueOn).toBe('2026-02-10');
-    expect(recurringStore.rules[0].nextRunOn).toBe('2026-03-10');
+    expect(recurringStore.dueInstances[0].dueOn).toBe('2099-02-10');
+    expect(recurringStore.rules[0].nextRunOn).toBe('2099-03-10');
   });
 
   it('posts a due transfer instance and updates both balances', async () => {
@@ -75,10 +75,10 @@ describe('recurring store', () => {
       counterpartyAccountId: savingsId,
       amount: 40,
       frequency: 'weekly',
-      nextRunOn: '2026-02-15'
+      nextRunOn: '2099-02-15'
     });
 
-    recurringStore.syncDueItems('2026-02-15');
+    recurringStore.syncDueItems('2099-02-15');
     const instanceId = recurringStore.dueInstances[0].id;
 
     await recurringStore.postInstance(instanceId);

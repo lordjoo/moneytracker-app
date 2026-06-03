@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { parseDate, readJson, writeJson } from '@/utils/storage';
+import { normalizeCycleStartDay } from '@/utils/dates';
 
 const STORAGE_KEY = 'preferences';
 
@@ -11,6 +12,7 @@ export const usePreferencesStore = defineStore('preferences', {
     onboardingCompleted: false,
     mainCurrency: 'USD',
     currencyApiToken: '',
+    monthStartDay: 1,
     initialized: false
   }),
   getters: {
@@ -20,7 +22,8 @@ export const usePreferencesStore = defineStore('preferences', {
     hasCompletedOnboarding: (state) => state.onboardingCompleted,
     baseCurrency: (state) => state.mainCurrency,
     currencyToken: (state) => state.currencyApiToken,
-    hasCurrencyToken: (state) => Boolean(state.currencyApiToken)
+    hasCurrencyToken: (state) => Boolean(state.currencyApiToken),
+    cycleStartDay: (state) => normalizeCycleStartDay(state.monthStartDay)
   },
   actions: {
     init() {
@@ -31,7 +34,8 @@ export const usePreferencesStore = defineStore('preferences', {
         theme: 'mymoney-light',
         onboardingCompleted: false,
         mainCurrency: 'USD',
-        currencyApiToken: ''
+        currencyApiToken: '',
+        monthStartDay: 1
       });
       this.lastBackupAt = parseDate(record.lastBackupAt);
       this.lastRestoreAt = parseDate(record.lastRestoreAt);
@@ -39,6 +43,7 @@ export const usePreferencesStore = defineStore('preferences', {
       this.onboardingCompleted = Boolean(record.onboardingCompleted);
       this.mainCurrency = record.mainCurrency || 'USD';
       this.currencyApiToken = record.currencyApiToken || '';
+      this.monthStartDay = normalizeCycleStartDay(record.monthStartDay);
       this.initialized = true;
     },
     persist() {
@@ -48,7 +53,8 @@ export const usePreferencesStore = defineStore('preferences', {
         theme: this.theme,
         onboardingCompleted: this.onboardingCompleted,
         mainCurrency: this.mainCurrency,
-        currencyApiToken: this.currencyApiToken
+        currencyApiToken: this.currencyApiToken,
+        monthStartDay: normalizeCycleStartDay(this.monthStartDay)
       });
     },
     markBackup(date = new Date()) {
@@ -69,6 +75,10 @@ export const usePreferencesStore = defineStore('preferences', {
     },
     setCurrencyApiToken(token) {
       this.currencyApiToken = token?.trim?.() ?? '';
+      this.persist();
+    },
+    setMonthStartDay(day) {
+      this.monthStartDay = normalizeCycleStartDay(day);
       this.persist();
     },
     completeOnboarding() {

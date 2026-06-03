@@ -1,0 +1,4 @@
+[    1266ms] [LOG] [PWA] Install prompt available @ http://localhost:5175/src/pwa.js:51
+[    1287ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:5175/welcome:0
+[    3690ms] [LOG] [PWA] Service Worker registered successfully @ http://localhost:5175/src/pwa.js:14
+[    3737ms] [INFO] [PWA] MyMoney app is ready to work offline. @ http://localhost:5175/src/pwa.js:11

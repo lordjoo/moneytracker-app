@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { writeJson } from '@/utils/storage';
-import { toDateKey } from '@/utils/dates';
+import { toCycleMonthKey, toDateKey } from '@/utils/dates';
 import { usePreferencesStore } from './preferences';
 import { useAccountsStore } from './accounts';
 import { useCategoriesStore } from './categories';
@@ -33,7 +33,7 @@ function setupStores() {
   const categoriesStore = useCategoriesStore();
   categoriesStore.init();
 
-  return { accountsStore, transactionsStore, categoriesStore };
+  return { preferencesStore, accountsStore, transactionsStore, categoriesStore };
 }
 
 describe('transactions store', () => {
@@ -236,9 +236,33 @@ describe('transactions store', () => {
       occurredAt: '2026-02-16'
     });
 
-    const now = new Date();
-    const monthKey = `${now.getFullYear()}-${now.getMonth() + 1}`;
+    const monthKey = '2026-02';
     expect(transactionsStore.monthlySummary[monthKey].debit).toBe(10);
     expect(accountsStore.accountById(walletId).balance).toBe(-30);
+  });
+
+  it('groups monthly summary by configured month start day', () => {
+    const { preferencesStore, accountsStore, transactionsStore } = setupStores();
+    preferencesStore.setMonthStartDay(25);
+    const walletId = accountsStore.createAccount({ name: 'Wallet', currency: 'USD' });
+
+    transactionsStore.addTransaction({
+      type: 'debit',
+      accountId: walletId,
+      amount: 20,
+      categoryId: 'food-dining',
+      occurredAt: '2026-04-24'
+    });
+    transactionsStore.addTransaction({
+      type: 'debit',
+      accountId: walletId,
+      amount: 30,
+      categoryId: 'food-dining',
+      occurredAt: '2026-04-25'
+    });
+
+    expect(toCycleMonthKey('2026-04-24', preferencesStore.cycleStartDay)).toBe('2026-03');
+    expect(transactionsStore.monthlySummary['2026-03'].debit).toBe(20);
+    expect(transactionsStore.monthlySummary['2026-04'].debit).toBe(30);
   });
 });

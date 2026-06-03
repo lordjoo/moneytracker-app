@@ -4,6 +4,7 @@ import AccountsView from '@/views/AccountsView.vue';
 import AccountDetailView from '@/views/AccountDetailView.vue';
 import TransactionsView from '@/views/TransactionsView.vue';
 import CategoriesView from '@/views/CategoriesView.vue';
+import SpendingCategoriesView from '@/views/SpendingCategoriesView.vue';
 import SettingsView from '@/views/SettingsView.vue';
 import MoreView from '@/views/MoreView.vue';
 import PlanningView from '@/views/PlanningView.vue';
@@ -11,6 +12,7 @@ import OnboardingView from '@/views/OnboardingView.vue';
 import BackupAccountSettings from '@/components/settings/BackupAccountSettings.vue';
 import CurrencySettings from '@/components/settings/CurrencySettings.vue';
 import HouseholdSettings from '@/components/settings/HouseholdSettings.vue';
+import MonthStartSettings from '@/components/settings/MonthStartSettings.vue';
 import MonthCloseSettings from '@/components/settings/MonthCloseSettings.vue';
 import { usePreferencesStore } from '@/stores/preferences';
 
@@ -26,6 +28,7 @@ const router = createRouter({
       props: true
     },
     { path: '/transactions', name: 'transactions', component: TransactionsView },
+    { path: '/spending/categories', name: 'spending-categories', component: SpendingCategoriesView },
     { path: '/categories', name: 'categories', component: CategoriesView },
     { path: '/planning', name: 'planning', component: PlanningView },
     {
@@ -45,6 +48,11 @@ const router = createRouter({
           component: CurrencySettings
         },
         {
+          path: 'month-start',
+          name: 'settings-month-start',
+          component: MonthStartSettings
+        },
+        {
           path: 'household',
           name: 'settings-household',
           component: HouseholdSettings
@@ -57,7 +65,8 @@ const router = createRouter({
       ]
     },
     { path: '/more', name: 'more', component: MoreView },
-    { path: '/welcome', name: 'onboarding', component: OnboardingView, meta: { fullscreen: true } }
+    { path: '/welcome', name: 'onboarding', component: OnboardingView, meta: { fullscreen: true } },
+    { path: '/:pathMatch(.*)*', redirect: { name: 'dashboard' } }
   ]
 });
 
@@ -67,7 +76,17 @@ router.beforeEach((to) => {
     preferences.init();
   }
 
-  if (!preferences.hasCompletedOnboarding && to.name !== 'onboarding') {
+  const isEmailSignInLink = to.query.mode === 'signIn' && Boolean(to.query.oobCode);
+  if (isEmailSignInLink && to.name !== 'settings-backup') {
+    return {
+      name: 'settings-backup',
+      query: to.query,
+      hash: to.hash,
+      replace: true
+    };
+  }
+
+  if (!preferences.hasCompletedOnboarding && to.name !== 'onboarding' && !isEmailSignInLink) {
     return { name: 'onboarding', replace: true };
   }
 

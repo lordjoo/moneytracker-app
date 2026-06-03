@@ -437,7 +437,8 @@ import { useBudgetsStore } from '@/stores/budgets';
 import { useRecurringStore } from '@/stores/recurring';
 import { useGoalsStore } from '@/stores/goals';
 import { useHouseholdStore } from '@/stores/household';
-import { toDateKey, toMonthKey } from '@/utils/dates';
+import { usePreferencesStore } from '@/stores/preferences';
+import { getCycleBounds, toCycleMonthKey, toDateKey } from '@/utils/dates';
 
 const tabs = [
   { key: 'budgets', label: 'Budgets' },
@@ -454,6 +455,7 @@ const budgetsStore = useBudgetsStore();
 const recurringStore = useRecurringStore();
 const goalsStore = useGoalsStore();
 const householdStore = useHouseholdStore();
+const preferencesStore = usePreferencesStore();
 
 if (!accountsStore.initialized) accountsStore.init();
 if (!categoriesStore.initialized) categoriesStore.init();
@@ -461,6 +463,7 @@ if (!budgetsStore.initialized) budgetsStore.init();
 if (!recurringStore.initialized) recurringStore.init();
 if (!goalsStore.initialized) goalsStore.init();
 if (!householdStore.initialized) householdStore.init();
+if (!preferencesStore.initialized) preferencesStore.init();
 
 onMounted(() => {
   recurringStore.syncDueItems();
@@ -469,10 +472,9 @@ onMounted(() => {
 const openAccounts = computed(() => accountsStore.visibleOpenAccounts);
 const expenseCategories = computed(() => categoriesStore.expenseCategories);
 const incomeCategories = computed(() => categoriesStore.incomeCategories);
-const currentMonthKey = computed(() => toMonthKey(new Date()));
-const currentMonthLabel = computed(() =>
-  new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(new Date())
-);
+const cycleStartDay = computed(() => preferencesStore.cycleStartDay);
+const currentMonthKey = computed(() => toCycleMonthKey(new Date(), cycleStartDay.value));
+const currentMonthLabel = computed(() => formatCycleLabel(getCycleBounds(new Date(), cycleStartDay.value)));
 
 const budgetForm = reactive({
   id: '',
@@ -533,6 +535,15 @@ const canEditFinancialData = computed(() => householdStore.canEditFinancialData)
 
 function formatCurrency(value, currency = currencyStore.mainCurrency) {
   return currencyStore.formatCurrency(value, currency);
+}
+
+function formatCycleLabel(bounds) {
+  if (!bounds) return 'Current cycle';
+  const formatter = new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric'
+  });
+  return `${formatter.format(bounds.start)} - ${formatter.format(bounds.endInclusive)}`;
 }
 
 function formatDateKey(dateKey) {

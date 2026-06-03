@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia';
 import { generateId, parseDate, readJson, writeJson } from '@/utils/storage';
-import { shiftMonthKey, toMonthKey } from '@/utils/dates';
+import { shiftMonthKey, toCycleMonthKey } from '@/utils/dates';
 import { notifyBackupDirty } from '@/utils/backupDirtySignal';
 import { useTransactionsStore } from './transactions';
 import { useAccountsStore } from './accounts';
 import { useHouseholdStore } from './household';
+import { usePreferencesStore } from './preferences';
 
 const STORAGE_KEY = 'budgets';
 const DEFAULT_THRESHOLDS = [80, 100, 120];
@@ -53,15 +54,15 @@ function compareMonthKey(left, right) {
   return left < right ? -1 : 1;
 }
 
-function resolveTransactionMonth(transaction) {
+function resolveTransactionMonth(transaction, cycleStartDay = 1) {
   if (transaction?.occurredOn && /^\d{4}-\d{2}-\d{2}$/.test(transaction.occurredOn)) {
-    return transaction.occurredOn.slice(0, 7);
+    return toCycleMonthKey(transaction.occurredOn, cycleStartDay);
   }
   const raw = transaction?.occurredAt ?? transaction?.createdAt;
-  return toMonthKey(raw);
+  return toCycleMonthKey(raw, cycleStartDay);
 }
 
-function calculateBudgetAvailable(budget, monthKey, spentByCategoryMonth, cache, depth = 0) {
+function calculateBudgetAvailable(budget, monthKey, spentByCategoryMonth, cache, cycleStartDay = 1, depth = 0) {
   const cacheKey = `${budget.id}:${monthKey}`;
   if (cache.has(cacheKey)) {
     return cache.get(cacheKey);
@@ -73,7 +74,7 @@ function calculateBudgetAvailable(budget, monthKey, spentByCategoryMonth, cache,
     return baseAmount;
   }
 
-  const createdMonth = toMonthKey(budget.createdAt) ?? monthKey;
+  const createdMonth = toCycleMonthKey(budget.createdAt, cycleStartDay) ?? monthKey;
   if (compareMonthKey(monthKey, createdMonth) <= 0) {
     cache.set(cacheKey, baseAmount);
     return baseAmount;
@@ -90,6 +91,7 @@ function calculateBudgetAvailable(budget, monthKey, spentByCategoryMonth, cache,
     previousMonth,
     spentByCategoryMonth,
     cache,
+    cycleStartDay,
     depth + 1
   );
   const previousSpent = spentByCategoryMonth.get(`${budget.categoryId}:${previousMonth}`) ?? 0;
@@ -197,15 +199,22 @@ export const useBudgetsStore = defineStore('budgets', {
         budgetId: id
       });
     },
-    getMonthlySummary(monthKey = toMonthKey(new Date())) {
+    getMonthlySummary(monthKey) {
       const transactionsStore = useTransactionsStore();
       const accountsStore = useAccountsStore();
+      const preferencesStore = usePreferencesStore();
       if (!transactionsStore.initialized) {
         transactionsStore.init();
       }
       if (!accountsStore.initialized) {
         accountsStore.init();
       }
+      if (!preferencesStore.initialized) {
+        preferencesStore.init();
+      }
+
+      const cycleStartDay = preferencesStore.cycleStartDay;
+      const targetMonthKey = monthKey ?? toCycleMonthKey(new Date(), cycleStartDay);
 
       const spentByCategoryMonth = new Map();
       for (const transaction of transactionsStore.transactions) {
@@ -213,7 +222,7 @@ export const useBudgetsStore = defineStore('budgets', {
         if (transaction.excludeFromInsights) continue;
         if (!accountsStore.isAccountVisible(transaction.accountId)) continue;
         if (!transaction.categoryId) continue;
-        const txMonth = resolveTransactionMonth(transaction);
+        const txMonth = resolveTransactionMonth(transaction, cycleStartDay);
         if (!txMonth) continue;
         const key = `${transaction.categoryId}:${txMonth}`;
         const next = (spentByCategoryMonth.get(key) ?? 0) + ensureNumber(transaction.amount, 0);
@@ -224,11 +233,12 @@ export const useBudgetsStore = defineStore('budgets', {
       const summaries = this.sortedBudgets.map((budget) => {
         const available = calculateBudgetAvailable(
           budget,
-          monthKey,
+          targetMonthKey,
           spentByCategoryMonth,
-          availableCache
+          availableCache,
+          cycleStartDay
         );
-        const spent = spentByCategoryMonth.get(`${budget.categoryId}:${monthKey}`) ?? 0;
+        const spent = spentByCategoryMonth.get(`${budget.categoryId}:${targetMonthKey}`) ?? 0;
         const remaining = available - spent;
         const usagePercent = available > 0 ? (spent / available) * 100 : (spent > 0 ? 100 : 0);
         const breachedThreshold = budget.alertThresholds
@@ -245,7 +255,8 @@ export const useBudgetsStore = defineStore('budgets', {
           rolloverEnabled: budget.rolloverEnabled,
           usagePercent,
           breachedThreshold,
-          thresholds: budget.alertThresholds
+          thresholds: budget.alertThresholds,
+          monthKey: targetMonthKey
         };
       });
 

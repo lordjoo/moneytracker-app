@@ -17,6 +17,9 @@ export function useTransactionHelpers() {
   function getTransactionTitle(tx) {
     if (tx.type === 'transfer') {
       const counterparty = accountsStore.visibleAccountById(tx.counterpartyAccountId);
+      if (tx.direction === 'incoming') {
+        return `Transfer from ${counterparty?.name ?? 'Unknown'}`;
+      }
       return `Transfer to ${counterparty?.name ?? 'Unknown'}`;
     }
     

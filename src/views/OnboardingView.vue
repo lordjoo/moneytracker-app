@@ -27,7 +27,7 @@
       </main>
 
       <footer class="flex flex-col gap-4 pb-6">
-        <progress class="progress progress-primary" :value="progressValue" max="activeSteps.length"></progress>
+        <progress class="progress progress-primary" :value="progressValue" :max="activeSteps.length"></progress>
         <div class="flex items-center justify-between">
           <button class="btn btn-ghost" :disabled="isFirst" @click="prev">Back</button>
           <div class="flex gap-2">

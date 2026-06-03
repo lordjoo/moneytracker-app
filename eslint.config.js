@@ -11,6 +11,7 @@ const sharedGlobals = {
   structuredClone: 'readonly',
   crypto: 'readonly',
   fetch: 'readonly',
+  Blob: 'readonly',
   URL: 'readonly',
   setTimeout: 'readonly',
   clearTimeout: 'readonly',
@@ -31,9 +32,7 @@ export default [
       'node_modules/**',
       '.eslintrc.cjs',
       'postcss.config.cjs',
-      'tailwind.config.cjs',
-      'src/views/TransactionsView.old.vue',
-      'src/views/TransactionsView.vue.backup'
+      'tailwind.config.cjs'
     ]
   },
   js.configs.recommended,
