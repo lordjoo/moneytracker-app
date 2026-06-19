@@ -12,6 +12,7 @@ import {
   signInWithEmailLink,
   getRedirectResult,
   signInWithPopup,
+  signInWithRedirect,
   signOut
 } from 'firebase/auth';
 import {
@@ -25,9 +26,54 @@ import {
 
 const env = import.meta.env ?? {};
 const projectId = env.VITE_FIREBASE_PROJECT_ID;
+
+const CONFIGURED_AUTH_DOMAIN =
+  env.VITE_FIREBASE_AUTH_DOMAIN || (projectId ? `${projectId}.firebaseapp.com` : undefined);
+
+// Extra domains (beyond the Firebase defaults) that serve both this app and the
+// Firebase /__/auth/ helper — typically custom domains connected to this Hosting
+// project. Comma-separated, e.g. "app.example.com,money.example.com".
+const APP_DOMAINS = String(env.VITE_FIREBASE_APP_DOMAINS || '')
+  .split(',')
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
+
+/**
+ * Resolve the authDomain to use for Google popup/redirect sign-in.
+ *
+ * Firebase serves the /__/auth/ handler on EVERY Hosting domain of the project
+ * (the default *.web.app and *.firebaseapp.com domains, plus any connected
+ * custom domain). `signInWithPopup` only works reliably when that handler is
+ * SAME-ORIGIN as the app: otherwise the popup is cross-origin and modern
+ * browsers (Chrome third-party storage partitioning, Safari ITP) break the
+ * handshake, leaving the user signed in on the authDomain origin instead of the
+ * origin they are actually using — exactly the "logged in on the firebase
+ * domain only" / "popup shows the app with no sign-up" symptoms.
+ *
+ * So when the app is being served from one of the project's Firebase-hosted
+ * domains, use that current host as the authDomain (same-origin handler). Fall
+ * back to the statically configured authDomain for localhost/dev or any host we
+ * can't vouch for.
+ *
+ * NOTE: every host returned here must be listed under Firebase Authentication →
+ * Settings → Authorized domains. The default *.web.app / *.firebaseapp.com
+ * domains are authorized automatically; custom domains in VITE_FIREBASE_APP_DOMAINS
+ * must be added there too.
+ */
+function resolveAuthDomain() {
+  if (typeof window === 'undefined') return CONFIGURED_AUTH_DOMAIN;
+  const host = window.location.hostname.toLowerCase();
+  const isFirebaseDefaultDomain = host.endsWith('.web.app') || host.endsWith('.firebaseapp.com');
+  if (isFirebaseDefaultDomain || APP_DOMAINS.includes(host)) {
+    // window.location.host keeps any port (none in production).
+    return window.location.host;
+  }
+  return CONFIGURED_AUTH_DOMAIN;
+}
+
 const firebaseConfig = {
   apiKey: env.VITE_FIREBASE_API_KEY,
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || (projectId ? `${projectId}.firebaseapp.com` : undefined),
+  authDomain: resolveAuthDomain(),
   projectId,
   storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID,
@@ -140,8 +186,24 @@ export function getPersistenceStatus() {
   return persistenceStatus;
 }
 
+// Popups can't be used in some environments (blocked, or in-app/embedded
+// browsers like Instagram/Facebook webviews). Fall back to a full-page redirect
+// there; the result is consumed on the next load by resolveGoogleRedirect().
+const POPUP_TO_REDIRECT_CODES = new Set([
+  'auth/popup-blocked',
+  'auth/operation-not-supported-in-this-environment'
+]);
+
 export async function signInWithGoogle() {
-  return signInWithPopup(auth, provider);
+  try {
+    return await signInWithPopup(auth, provider);
+  } catch (error) {
+    if (POPUP_TO_REDIRECT_CODES.has(error?.code)) {
+      await signInWithRedirect(auth, provider);
+      return null; // sign-in completes after the redirect returns
+    }
+    throw error;
+  }
 }
 
 export async function resolveGoogleRedirect() {

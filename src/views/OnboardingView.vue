@@ -2,8 +2,8 @@
   <div class="min-h-screen bg-base-200">
     <div class="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-6 py-10">
       <header class="flex items-center justify-between">
-        <div class="flex items-center gap-2 text-lg font-semibold">
-          <span class="btn btn-circle btn-sm bg-primary text-primary-content border-none">₿</span>
+        <div class="flex items-center gap-2.5 text-lg font-bold tracking-tight">
+          <AppLogo :size="36" class="shadow-sm rounded-xl" />
           <span>MyMoney</span>
         </div>
         <button class="btn btn-ghost btn-sm" @click="skip">Skip</button>
@@ -44,6 +44,7 @@
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { SparklesIcon, ArrowTrendingUpIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline';
+import AppLogo from '@/components/AppLogo.vue';
 import { usePreferencesStore } from '@/stores/preferences';
 
 const router = useRouter();

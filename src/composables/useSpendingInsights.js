@@ -47,7 +47,10 @@ export function useSpendingInsights() {
       const bounds = getCycleBoundsForMonthKey(monthKey, cycleStartDay.value);
       options.push({
         value: monthKey,
-        label: formatCycleOptionLabel(bounds)
+        label: formatCycleOptionLabel(bounds),
+        shortLabel: bounds
+          ? new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(bounds.start)
+          : 'Unknown'
       });
       monthKey = shiftMonthKey(monthKey, -1);
     }

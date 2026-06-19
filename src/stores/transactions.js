@@ -216,7 +216,7 @@ export const useTransactionsStore = defineStore('transactions', {
         this.init();
       }
     },
-    recordOpeningBalance({ accountId, amount, occurredAt = new Date() }) {
+    recordOpeningBalance({ accountId, amount, occurredAt = new Date(), direction = 'credit' }) {
       this.ensureInitialised();
       const value = ensureNumber(amount, 0);
       if (value === 0) return;
@@ -225,15 +225,18 @@ export const useTransactionsStore = defineStore('transactions', {
       if (!account) return;
       const { occurredOn, occurredAt: timestamp } = normaliseTransactionDate(occurredAt);
       const now = new Date();
+      // 'credit' opening adds holdings; 'debit' opening seeds a starting debt
+      // (used by credit accounts, whose balance is stored as a negative liability).
+      const isDebt = direction === 'debit';
       const tx = {
         id: generateId('tx'),
-        type: 'credit',
+        type: isDebt ? 'debit' : 'credit',
         subtype: 'opening-balance',
         accountId,
         amount: value,
         categoryId: 'opening-balance',
-        note: 'Opening balance',
-        excludeFromInsights: false,
+        note: isDebt ? 'Opening balance owed' : 'Opening balance',
+        excludeFromInsights: isDebt,
         occurredOn,
         occurredAt: timestamp,
         createdAt: now,
@@ -242,7 +245,7 @@ export const useTransactionsStore = defineStore('transactions', {
       };
       this.transactions = sortTransactions([...this.transactions, tx]);
       this.persist();
-      accountsStore.applyBalanceDelta(accountId, value);
+      accountsStore.applyBalanceDelta(accountId, isDebt ? -value : value);
     },
     addTransaction({
       type,

@@ -219,11 +219,9 @@ function handleAvatarError(event) {
 }
 
 async function signIn() {
-  console.log('[BackupSettings] Sign-in button clicked');
   try {
-    setStatus('info', 'Redirecting to Google...');
+    setStatus('info', 'Opening Google sign-in…');
     await authStore.signIn();
-    console.log('[BackupSettings] Sign-in successful');
     fallbackAvatar.value = makeFallbackAvatar(authStore.displayName);
     setStatus('success', 'Successfully signed in with Google!');
   } catch (error) {

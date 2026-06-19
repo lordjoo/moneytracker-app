@@ -1,32 +1,35 @@
 <template>
   <div class="min-h-screen bg-base-200">
-    <header v-if="!isFullscreen" class="sticky top-0 z-40 border-b border-base-300 bg-base-100/90 backdrop-blur">
+    <header v-if="!isFullscreen" class="sticky top-0 z-40 border-b border-base-300 bg-base-100/85 backdrop-blur-md">
       <div class="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3">
-        <RouterLink to="/" class="flex items-center gap-2 text-lg font-semibold">
-          <span class="btn btn-circle btn-sm bg-primary text-primary-content border-none">₿</span>
-          <span>MyMoney</span>
+        <RouterLink to="/" class="flex items-center gap-2.5 font-bold tracking-tight">
+          <AppLogo :size="36" class="shadow-sm rounded-xl" />
+          <span class="text-lg">MyMoney</span>
         </RouterLink>
-        <div class="ms-auto flex items-center gap-3">
-          <p class="hidden text-sm font-medium opacity-80 sm:block">
-            Net worth: {{ netWorthLabel }}
-            <span v-if="showNetWorthHint" class="text-xs opacity-60">(partial)</span>
-          </p>
-          <button class="btn btn-outline btn-sm" @click="toggleTheme" :aria-label="themeLabel">
-            <component :is="themeIcon" class="h-4 w-4" />
+        <div class="ms-auto flex items-center gap-2">
+          <div class="mr-1 hidden text-right sm:block">
+            <p class="text-[0.7rem] font-medium uppercase tracking-wide text-base-content/45">Net worth</p>
+            <p class="-mt-0.5 text-sm font-semibold tnum">
+              {{ netWorthLabel }}
+              <span v-if="showNetWorthHint" class="text-xs font-normal text-base-content/50">(partial)</span>
+            </p>
+          </div>
+          <button class="btn btn-ghost btn-sm btn-square" @click="toggleTheme" :aria-label="themeLabel">
+            <component :is="themeIcon" class="h-5 w-5" />
           </button>
-          <RouterLink to="/more" class="btn btn-ghost btn-sm">
-            More
+          <RouterLink to="/more" class="btn btn-ghost btn-sm btn-square sm:hidden" aria-label="More">
+            <EllipsisHorizontalCircleIcon class="h-5 w-5" />
           </RouterLink>
         </div>
       </div>
-      <nav v-if="!isFullscreen" class="hidden border-t border-base-300 bg-base-100/80 sm:block">
-        <div class="mx-auto flex max-w-5xl items-center px-4">
+      <nav v-if="!isFullscreen" class="hidden border-t border-base-300 bg-base-100/60 sm:block">
+        <div class="mx-auto flex max-w-5xl items-center gap-1 px-3">
           <RouterLink
             v-for="item in navigation"
             :key="item.to"
             :to="item.to"
-            class="-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-sm transition"
-            :class="item.active ? 'border-primary text-primary' : 'border-transparent opacity-70 hover:opacity-100'"
+            class="-mb-px flex items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition"
+            :class="item.active ? 'border-primary text-primary' : 'border-transparent text-base-content/60 hover:text-base-content'"
           >
             <component :is="item.icon" class="h-4 w-4" />
             <span>{{ item.label }}</span>
@@ -130,6 +133,7 @@ import {
   EllipsisHorizontalCircleIcon,
   XMarkIcon
 } from '@heroicons/vue/24/outline';
+import AppLogo from '@/components/AppLogo.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useAccountsStore } from '@/stores/accounts';
 import { useTransactionsStore } from '@/stores/transactions';
@@ -256,7 +260,7 @@ function applyTheme() {
   document.documentElement.setAttribute('data-theme', theme.value);
   const themeMeta = document.querySelector('meta[name="theme-color"]');
   if (themeMeta) {
-    themeMeta.setAttribute('content', theme.value === 'mymoney-dark' ? '#0b1120' : '#f8fafc');
+    themeMeta.setAttribute('content', theme.value === 'mymoney-dark' ? '#1A1613' : '#F4F1ED');
   }
   if (preferencesStore.activeTheme !== theme.value) {
     preferencesStore.setTheme(theme.value);

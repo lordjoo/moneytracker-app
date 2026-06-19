@@ -7,10 +7,23 @@ import { useHouseholdStore } from './household';
 
 const STORAGE_KEY = 'accounts';
 const FALLBACK_CURRENCY = 'USD';
+const ACCOUNT_TYPES = ['cash', 'credit'];
+
+function normaliseAccountType(value) {
+  return ACCOUNT_TYPES.includes(value) ? value : 'cash';
+}
+
+function normaliseCreditLimit(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 
 function deserialiseAccount(record, defaultCurrency = FALLBACK_CURRENCY) {
+  const type = normaliseAccountType(record.type);
   return {
     ...record,
+    type,
+    creditLimit: type === 'credit' ? normaliseCreditLimit(record.creditLimit) : null,
     excludeFromHousehold: Boolean(record.excludeFromHousehold),
     ownerUid: String(record.ownerUid ?? ''),
     createdAt: parseDate(record.createdAt),
@@ -21,8 +34,11 @@ function deserialiseAccount(record, defaultCurrency = FALLBACK_CURRENCY) {
 }
 
 function serialiseAccount(account) {
+  const type = normaliseAccountType(account.type);
   return {
     ...account,
+    type,
+    creditLimit: type === 'credit' ? normaliseCreditLimit(account.creditLimit) : null,
     excludeFromHousehold: Boolean(account.excludeFromHousehold),
     ownerUid: String(account.ownerUid ?? ''),
     createdAt: account.createdAt ? account.createdAt.toISOString() : null,
@@ -35,6 +51,22 @@ function serialiseAccount(account) {
 function ensureNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+/**
+ * Credit accounts store debt as a negative balance (a liability), so the
+ * existing debit/transfer engine and net-worth math work unchanged: spending
+ * (debit) makes the balance more negative, paying it (transfer in) brings it
+ * back toward zero. This helper derives the friendly numbers for the UI.
+ */
+export function describeCreditAccount(account) {
+  const balance = ensureNumber(account?.balance);
+  const owed = Math.max(0, -balance);
+  const overpaid = Math.max(0, balance); // they paid more than owed → statement credit
+  const limit = normaliseCreditLimit(account?.creditLimit);
+  const available = limit != null ? Math.max(0, limit - owed) : null;
+  const utilization = limit != null && limit > 0 ? Math.min(1, owed / limit) : null;
+  return { owed, overpaid, limit, available, utilization };
 }
 
 export const useAccountsStore = defineStore('accounts', {
@@ -87,6 +119,24 @@ export const useAccountsStore = defineStore('accounts', {
         .filter((account) => account.isClosed)
         .sort((a, b) => a.name.localeCompare(b.name)),
     totalWorth: (state) => state.accounts.reduce((sum, account) => sum + ensureNumber(account.balance), 0),
+    visibleCashAccounts() {
+      return this.visibleOpenAccounts.filter((account) => normaliseAccountType(account.type) !== 'credit');
+    },
+    visibleCreditAccounts() {
+      return this.visibleOpenAccounts.filter((account) => normaliseAccountType(account.type) === 'credit');
+    },
+    // Sum of positive holdings (in their own currency — converted totals live in the currency store).
+    totalCashWorth() {
+      return this.visibleAccounts
+        .filter((account) => normaliseAccountType(account.type) !== 'credit')
+        .reduce((sum, account) => sum + ensureNumber(account.balance), 0);
+    },
+    // Total amount owed across credit accounts (positive number).
+    totalCreditDebt() {
+      return this.visibleAccounts
+        .filter((account) => normaliseAccountType(account.type) === 'credit')
+        .reduce((sum, account) => sum + Math.max(0, -ensureNumber(account.balance)), 0);
+    },
     accountById: (state) => (id) => state.accounts.find((account) => account.id === id) ?? null,
     visibleAccountById() {
       return (id) => this.visibleAccounts.find((account) => account.id === id) ?? null;
@@ -128,7 +178,15 @@ export const useAccountsStore = defineStore('accounts', {
       this.activeAccountId = id;
       this.persist();
     },
-    createAccount({ name, openingBalance = 0, cycleDay = null, currency, excludeFromHousehold = false } = {}) {
+    createAccount({
+      name,
+      openingBalance = 0,
+      cycleDay = null,
+      currency,
+      excludeFromHousehold = false,
+      type = 'cash',
+      creditLimit = null
+    } = {}) {
       const householdStore = useHouseholdStore();
       if (!householdStore.initialized) {
         householdStore.init();
@@ -138,6 +196,9 @@ export const useAccountsStore = defineStore('accounts', {
       if (!trimmed) {
         throw new Error('Account name is required');
       }
+      const accountType = normaliseAccountType(type);
+      // For a cash account the opening figure is money you hold; for a credit
+      // account it is the balance you currently owe (recorded as debt).
       const amount = ensureNumber(openingBalance, 0);
       const now = new Date();
       const id = generateId('acct');
@@ -149,6 +210,8 @@ export const useAccountsStore = defineStore('accounts', {
       const account = {
         id,
         name: trimmed,
+        type: accountType,
+        creditLimit: accountType === 'credit' ? normaliseCreditLimit(creditLimit) : null,
         balance: 0,
         cycleDay: cycleDay ? Number(cycleDay) : null,
         isClosed: false,
@@ -168,10 +231,12 @@ export const useAccountsStore = defineStore('accounts', {
         transactionsStore.recordOpeningBalance({
           accountId: id,
           amount,
-          occurredAt: now
+          occurredAt: now,
+          // A credit account's opening balance is debt → record it as an outflow.
+          direction: accountType === 'credit' ? 'debit' : 'credit'
         });
       }
-      householdStore.logEvent('account.created', `Created account "${trimmed}"`, {
+      householdStore.logEvent('account.created', `Created ${accountType} account "${trimmed}"`, {
         accountId: id
       });
       return id;
@@ -198,6 +263,13 @@ export const useAccountsStore = defineStore('accounts', {
       }
       if (Object.prototype.hasOwnProperty.call(payload, 'excludeFromHousehold')) {
         payload.excludeFromHousehold = Boolean(payload.excludeFromHousehold);
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'type')) {
+        payload.type = normaliseAccountType(payload.type);
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, 'creditLimit')) {
+        const resolvedType = payload.type ?? account.type;
+        payload.creditLimit = resolvedType === 'credit' ? normaliseCreditLimit(payload.creditLimit) : null;
       }
       if (payload.currency) {
         payload.currency = String(payload.currency).toUpperCase();

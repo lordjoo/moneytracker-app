@@ -1,27 +1,66 @@
 <template>
   <div v-if="account" class="space-y-6">
-    <header class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <div class="flex items-center gap-2">
-          <h1 class="text-2xl font-semibold">{{ account.name }}</h1>
-          <span v-if="account.isClosed" class="badge badge-outline badge-sm">Closed</span>
-          <span v-if="account.excludeFromHousehold" class="badge badge-warning badge-sm">Private</span>
+    <RouterLink to="/accounts" class="inline-flex items-center gap-1 text-sm font-medium text-base-content/60 hover:text-base-content">
+      <ChevronLeftIcon class="h-4 w-4" /> Accounts
+    </RouterLink>
+
+    <header class="overflow-hidden rounded-3xl bg-neutral text-neutral-content shadow-lg">
+      <div class="flex flex-col gap-5 p-6 sm:p-8">
+        <div class="flex items-start justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <AccountAvatar :account="account" size="lg" tone="inverted" />
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <h1 class="text-2xl font-bold tracking-tight">{{ account.name }}</h1>
+                <span v-if="account.isClosed" class="badge badge-outline badge-sm border-neutral-content/30 text-neutral-content/80">Closed</span>
+                <span v-if="account.excludeFromHousehold" class="badge badge-warning badge-sm">Private</span>
+              </div>
+              <p class="text-sm text-neutral-content/65">
+                {{ isCredit ? 'Credit card' : 'Cash account' }} · {{ account.currency ?? currencyStore.mainCurrency }}
+                <span v-if="account.cycleDay"> · {{ isCredit ? 'statement' : 'cycle' }} day {{ account.cycleDay }}</span>
+              </p>
+            </div>
+          </div>
+          <div class="text-right">
+            <span class="text-xs text-neutral-content/60">{{ isCredit ? 'Balance owed' : 'Current balance' }}</span>
+            <p class="amount-hero text-3xl" :class="isCredit && credit.owed > 0 ? 'text-error' : ''">
+              {{ isCredit ? formatCurrency(credit.owed) : formatCurrency(account.balance) }}
+            </p>
+            <p v-if="account.currency !== currencyStore.mainCurrency" class="text-xs text-neutral-content/60">
+              <span v-if="convertedAccountBalance !== null">≈ {{ formatBaseCurrency(convertedAccountBalance) }}</span>
+              <span v-else>Conversion pending…</span>
+            </p>
+          </div>
         </div>
-        <p class="text-sm opacity-70">Cycle day: {{ account.cycleDay ?? 'Not set' }}</p>
-        <p class="text-sm opacity-70">Currency: {{ account.currency ?? currencyStore.mainCurrency }}</p>
-      </div>
-      <div class="flex flex-col items-end gap-1 text-right">
-        <span class="text-xs opacity-60">Current balance</span>
-        <span class="text-3xl font-semibold">{{ formatCurrency(account.balance) }}</span>
-        <p v-if="account.currency !== currencyStore.mainCurrency" class="text-xs opacity-60">
-          <span v-if="convertedAccountBalance !== null">
-            ≈ {{ formatBaseCurrency(convertedAccountBalance) }}
-          </span>
-          <span v-else>Conversion pending…</span>
-        </p>
-        <button class="btn btn-primary btn-sm" :disabled="isClosed || !canEditFinancialData" @click="openTransactionForCreate">
-          {{ isClosed ? 'Account closed' : (canEditFinancialData ? 'Add transaction' : 'Read-only role') }}
-        </button>
+
+        <!-- Credit utilization -->
+        <CreditUtilizationBar
+          v-if="isCredit"
+          tone="inverted"
+          verbose
+          :credit="credit"
+          :currency="accountCurrencyCode"
+        />
+
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-if="isCredit"
+            class="btn btn-primary btn-sm gap-1.5"
+            :disabled="isClosed || !canEditFinancialData"
+            @click="openPay = true"
+          >
+            <ArrowRightIcon class="h-4 w-4" /> Pay card
+          </button>
+          <button
+            class="btn btn-sm gap-1.5"
+            :class="isCredit ? 'btn-outline border-neutral-content/30 text-neutral-content hover:bg-neutral-content/10 hover:border-neutral-content/30' : 'btn-primary'"
+            :disabled="isClosed || !canEditFinancialData"
+            @click="openTransactionForCreate"
+          >
+            <PlusIcon class="h-4 w-4" />
+            {{ isClosed ? 'Account closed' : (canEditFinancialData ? (isCredit ? 'Add charge' : 'Add transaction') : 'Read-only role') }}
+          </button>
+        </div>
       </div>
     </header>
 
@@ -175,6 +214,8 @@
         </div>
       </Dialog>
     </TransitionRoot>
+    <PayCreditDialog :open="openPay" :account="account" @close="openPay = false" />
+
     <ConfirmationDialog
       v-model:open="openDeleteDialog"
       title="Delete transaction"
@@ -189,9 +230,13 @@
 
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { RouterLink, useRoute } from 'vue-router';
 import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } from '@headlessui/vue';
-import { useAccountsStore } from '@/stores/accounts';
+import { ChevronLeftIcon, ArrowRightIcon, PlusIcon } from '@heroicons/vue/24/outline';
+import { useAccountsStore, describeCreditAccount } from '@/stores/accounts';
+import PayCreditDialog from '@/components/PayCreditDialog.vue';
+import AccountAvatar from '@/components/AccountAvatar.vue';
+import CreditUtilizationBar from '@/components/CreditUtilizationBar.vue';
 import { useTransactionsStore } from '@/stores/transactions';
 import { useCategoriesStore } from '@/stores/categories';
 import { useCurrencyStore } from '@/stores/currency';
@@ -241,6 +286,9 @@ const {
 } = useTransactionHelpers();
 
 const account = computed(() => accountsStore.visibleAccountById(route.params.id));
+const isCredit = computed(() => account.value?.type === 'credit');
+const credit = computed(() => describeCreditAccount(account.value));
+const openPay = ref(false);
 const openTransaction = ref(false);
 const isProcessing = ref(false);
 const isClosed = computed(() => account.value?.isClosed ?? false);

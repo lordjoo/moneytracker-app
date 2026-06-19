@@ -4,12 +4,176 @@
 
 :root {
   color-scheme: light dark;
+
+  /* Semantic z-index scale */
+  --z-dropdown: 1000;
+  --z-sticky: 1100;
+  --z-fab: 1150;
+  --z-backdrop: 1200;
+  --z-modal: 1300;
+  --z-toast: 1400;
+  --z-tooltip: 1500;
+
+  /* Motion */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-html, body {
+html,
+body {
   min-height: 100%;
 }
 
 body {
-  @apply font-sans bg-base-200 text-base-content;
+  @apply bg-base-200 text-base-content antialiased;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Headings read a touch tighter and balanced */
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+  letter-spacing: -0.011em;
+}
+
+/* Long prose stays readable */
+p {
+  text-wrap: pretty;
+}
+
+@layer components {
+  /* Tabular figures for every monetary value so columns and digits align. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  /* The hero amount — large, tight, tabular. */
+  .amount-hero {
+    @apply tnum font-bold tracking-tight;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Component refinements — applied on top of DaisyUI so the whole app
+ * picks up the warmer, calmer system without per-view rewrites.
+ * ------------------------------------------------------------------ */
+
+/* Cards: hairline border + soft shadow, never a hard drop shadow. */
+.card {
+  border: 1px solid hsl(var(--b3) / 0.7);
+  transition: box-shadow 0.2s var(--ease-out-quart), transform 0.2s var(--ease-out-quart),
+    border-color 0.2s var(--ease-out-quart);
+}
+
+/* Inputs / selects / textareas share one calm focus treatment. */
+.input,
+.select,
+.textarea {
+  transition: border-color 0.15s var(--ease-out-quart), box-shadow 0.15s var(--ease-out-quart),
+    background-color 0.15s var(--ease-out-quart);
+}
+.input:focus,
+.input:focus-within,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: hsl(var(--p));
+  box-shadow: 0 0 0 3px hsl(var(--p) / 0.18);
+}
+
+/* Buttons: gentle press feedback. */
+.btn {
+  letter-spacing: 0;
+  transition: transform 0.12s var(--ease-out-quart), box-shadow 0.18s var(--ease-out-quart),
+    background-color 0.18s var(--ease-out-quart), border-color 0.18s var(--ease-out-quart),
+    color 0.18s var(--ease-out-quart);
+}
+.btn:active {
+  transform: translateY(1px) scale(0.99);
+}
+.btn-primary {
+  box-shadow: 0 6px 16px -8px hsl(var(--p) / 0.7);
+}
+
+/* Visible, on-brand focus ring everywhere for keyboard users. */
+:where(a, button, [role='button'], summary, .btn, .tab):focus-visible {
+  outline: 2px solid hsl(var(--p));
+  outline-offset: 2px;
+  border-radius: 0.4rem;
+}
+
+/* Progress bars sit on a calm track. */
+progress.progress {
+  background-color: hsl(var(--b3) / 0.8);
+}
+
+/* Bottom tab bar — taller touch targets, clean separation. */
+.btm-nav {
+  height: 4.25rem;
+  padding-bottom: env(safe-area-inset-bottom);
+  box-shadow: 0 -1px 0 hsl(var(--b3) / 0.7), 0 -8px 24px -16px rgba(58, 42, 32, 0.25);
+}
+.btm-nav > * {
+  gap: 0.15rem;
+}
+
+/* Softer, warm-tinted scrollbar. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--bc) / 0.2) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--bc) / 0.2);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--bc) / 0.35);
+}
+
+/* Route transition (used by AppShell). */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s var(--ease-out-quart), transform 0.2s var(--ease-out-quart);
+}
+.fade-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* Staggered list reveals enhance an already-visible default. */
+@media (prefers-reduced-motion: no-preference) {
+  .stagger > * {
+    animation: fade-rise 0.45s var(--ease-out-quart) both;
+  }
+  .stagger > *:nth-child(1) { animation-delay: 0.02s; }
+  .stagger > *:nth-child(2) { animation-delay: 0.06s; }
+  .stagger > *:nth-child(3) { animation-delay: 0.10s; }
+  .stagger > *:nth-child(4) { animation-delay: 0.14s; }
+  .stagger > *:nth-child(5) { animation-delay: 0.18s; }
+  .stagger > *:nth-child(6) { animation-delay: 0.22s; }
+  .stagger > *:nth-child(7) { animation-delay: 0.26s; }
+  .stagger > *:nth-child(8) { animation-delay: 0.30s; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
